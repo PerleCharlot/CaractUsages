@@ -2,7 +2,7 @@
 # Nom : Interactions spatiales entre usages
 # Auteure : Perle Charlot
 # Date de création : 05-07-2022
-# Dates de modification : 06-07-2022
+# Dates de modification : 08-07-2022
 
 ### Librairies -------------------------------------
 
@@ -11,6 +11,9 @@ library(data.table)
 library(sf)
 library(magick)
 library(corrplot)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
 
 # library(fasterize)
 
@@ -21,7 +24,7 @@ DfUsages <- function(mois){
   # # TEST
   # mois = "juin"
   
-  list_usages = list.files(paste0(output_path,"/par_periode/",mois),recursive=TRUE, ".tif", full.names=TRUE)
+  list_usages = list.files(paste0(output_path,"/par_periode/",mois),recursive=TRUE, ".tif$", full.names=TRUE)
   usages = stack(list_usages)
   usages_masked <- raster::mask(usages, limiteN2000)
   df_usages_masked = as.data.frame(as.data.table(usages_masked[]))
@@ -58,9 +61,9 @@ CarteMultiUsages <- function(mois){
   # # TEST
   # mois = "juin"
   
-  list_usages = list.files(paste0(output_path,"/par_periode/",mois),recursive=TRUE, ".tif", full.names=TRUE)
-  usages = stack(list_usages)
-  usages_masked <- mask(usages, limiteN2000)
+  list_usages = list.files(paste0(output_path,"/par_periode/",mois),recursive=TRUE, ".tif$", full.names=TRUE)
+  usages <- stack(list_usages)
+  usages_masked <- raster::mask(usages, limiteN2000)
 
   return(usages_masked)
 }
@@ -85,12 +88,6 @@ limiteN2000 <- paste0(dos_var_sp, "/limites_etude/cembraie_N2000_limites.gpkg")
 #### Tables ####
 
 ### Programme -------------------------------------
-
-# Charger les cartes des usages
-
-# Transformer en tableau de 0(absence) et 1 (présence)
-
-# Répéter l'opération pour chaque mois
 
 limiteN2000 <- st_read(limiteN2000)
 
@@ -165,8 +162,38 @@ writeRaster(rast.multiusage, bylayer=TRUE,
 
 # TODO : Statistiques multiusages au cours du temps
 
-f2 = function(r){  return(table(values(r)))}
-lapply(liste.rast.multiusage, f2)
+stats_multiusage = lapply(liste.rast.multiusage, function(r){  return(table(values(r)))})
+max_len <- max(sapply(stats_multiusage,length))
+stats_multiusage = as.data.frame(do.call("rbind",lapply(stats_multiusage,function(x) x[seq(max_len)])))
+names(stats_multiusage) = c(0:5)
+stats_multiusage[is.na(stats_multiusage)] <- 0
+# Aire relative à l'aire totale
+aire_N2000 = (sum(stats_multiusage[1,1:6])*25*25)/10000
+stats_multiusage_rel = (((stats_multiusage*25*25)/10000) /aire_N2000 )*100
+stats_multiusage_rel$mois = paste0("0",4:9,"_",liste.mois)
+
+# stats_multiusage$mois = paste0("0",4:9,"_",liste.mois)
+# df_stats_multiusage <- stats_multiusage %>% 
+#   pivot_longer(cols=1:6, names_to = "somme_usages", values_to = "nb_pix")
+# df_stats_multiusage %>%
+#   subset(somme_usages >0) %>%
+#   ggplot(aes(x=somme_usages,y=(nb_pix*25^2)/10000, fill=mois)) +
+#   geom_col() +
+#   facet_wrap(~mois)+
+#   labs(y="Superficie (ha)")
+
+df_stats_multiusage_rel <- stats_multiusage_rel %>% 
+  pivot_longer(cols=1:6, names_to = "somme_usages", values_to = "pourcent_aire_N2000")
+
+df_stats_multiusage_rel %>%
+  subset(somme_usages >0) %>%
+  ggplot(aes(x=somme_usages,y=pourcent_aire_N2000, fill=somme_usages)) +
+  geom_col() +
+  facet_wrap(~mois)+
+  labs(y="Superficie de la zone Natura2000 (en %)", fill="Nombre d'usages")+
+  theme(axis.title.x = element_blank())
+
+
 
 # Création d'un gif pour visualiser les zones multiusage au cours des mois
 imgs <- list.files(input_path, full.names = TRUE, '.png')
