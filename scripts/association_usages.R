@@ -2,7 +2,7 @@
 # Nom : Interactions spatiales entre usages
 # Auteure : Perle Charlot
 # Date de création : 05-07-2022
-# Dates de modification : 08-07-2022
+# Dates de modification : 17-07-2022
 
 ### Librairies -------------------------------------
 
@@ -91,12 +91,12 @@ limiteN2000 <- paste0(dos_var_sp, "/limites_etude/cembraie_N2000_limites.gpkg")
 
 limiteN2000 <- st_read(limiteN2000)
 
-dfUsages_04 <- DfUsages("avril")
-dfUsages_05 <- DfUsages("mai")
-dfUsages_06 <- DfUsages("juin")
-dfUsages_07 <- DfUsages("juillet")
-dfUsages_08 <- DfUsages("aout")
-dfUsages_09 <- DfUsages("septembre")
+# dfUsages_04 <- DfUsages("avril")
+# dfUsages_05 <- DfUsages("mai")
+# dfUsages_06 <- DfUsages("juin")
+# dfUsages_07 <- DfUsages("juillet")
+# dfUsages_08 <- DfUsages("aout")
+# dfUsages_09 <- DfUsages("septembre")
 
 
 #### Coefficient d'association de Yule #### 
@@ -159,6 +159,14 @@ rast.multiusage = stack(liste.rast.multiusage)
 names(rast.multiusage) = paste0("sumUsage_0",seq(4,9,1),liste.mois)
 writeRaster(rast.multiusage, bylayer=TRUE, 
             paste0(output_path,"/multiusage/.tif"),suffix=names(rast.multiusage))
+
+plot(rast.multiusage)
+
+dt_stack <- as.data.frame(data.table(as.data.frame(rast.multiusage)))
+dt_stack <- cbind(dt_stack,coordinates(rast.multiusage))
+dt_stack <- dt_stack[complete.cases(dt_stack),]
+
+write.csv(dt_stack, paste0(output_path,"/multiusage/table_points_multiusage.csv"))
 
 # TODO : Statistiques multiusages au cours du temps
 
