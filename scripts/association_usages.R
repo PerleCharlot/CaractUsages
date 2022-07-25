@@ -2,7 +2,7 @@
 # Nom : Interactions spatiales entre usages
 # Auteure : Perle Charlot
 # Date de création : 05-07-2022
-# Dates de modification : 17-07-2022
+# Dates de modification : 25-07-2022
 
 ### Librairies -------------------------------------
 
@@ -154,7 +154,7 @@ cor.test(dfUsages_06$paturage, dfUsages_06$nidification_TLY_juin, method = "pear
 #### Superposition des usages ####
 liste.mois = c("avril","mai","juin","juillet","aout","septembre")
 liste.rast.usage = lapply(liste.mois, CarteMultiUsages)
-liste.rast.multiusage =lapply(liste.rast.usage, function(r)sum(r))
+liste.rast.multiusage = lapply(liste.rast.usage, function(r)sum(r))
 rast.multiusage = stack(liste.rast.multiusage)
 names(rast.multiusage) = paste0("sumUsage_0",seq(4,9,1),liste.mois)
 writeRaster(rast.multiusage, bylayer=TRUE, 
@@ -179,6 +179,10 @@ stats_multiusage[is.na(stats_multiusage)] <- 0
 aire_N2000 = (sum(stats_multiusage[1,1:6])*25*25)/10000
 stats_multiusage_rel = (((stats_multiusage*25*25)/10000) /aire_N2000 )*100
 stats_multiusage_rel$mois = paste0("0",4:9,"_",liste.mois)
+stats_multiusage_rel <- stats_multiusage_rel %>% 
+  group_by(mois) %>% mutate(sum_multiusage = sum(c_across('2':'5')))
+
+write.csv(stats_multiusage_rel, paste0(output_path,"/multiusage/pourcent_multiusage.csv"))
 
 # stats_multiusage$mois = paste0("0",4:9,"_",liste.mois)
 # df_stats_multiusage <- stats_multiusage %>% 
@@ -199,9 +203,52 @@ df_stats_multiusage_rel %>%
   geom_col() +
   facet_wrap(~mois)+
   labs(y="Superficie de la zone Natura2000 (en %)", fill="Nombre d'usages")+
-  theme(axis.title.x = element_blank())
+  theme(axis.title.x = element_blank())+
+  geom_text(aes(label = round(pourcent_aire_N2000,2)), vjust = -0.5)
 
 
+df_stats_multiusage_rel %>%
+  subset(somme_usages >1) %>%
+  ggplot(aes(x=somme_usages,y=pourcent_aire_N2000, fill=somme_usages)) +
+  geom_col() +
+  facet_wrap(~mois)+
+  labs(y="Superficie de la zone Natura2000 (en %)", fill="Nombre d'usages\nsimultanés")+
+  theme(axis.title.x = element_blank(),
+        strip.text = element_text(size = 34),
+        axis.text = element_text(size = 28),
+        axis.title = element_text(size = 28),
+        legend.text = element_text(size=22),
+        legend.title = element_text(size=24)
+        
+       # ,legend.position = "none"
+        )+
+  geom_text(aes(label = round(pourcent_aire_N2000,2)), vjust = 0.5, size=12)+
+  scale_fill_manual(values=c("springgreen3",
+                             "lightgoldenrodyellow",
+                             "sandybrown","red3"))
+
+
+p1 = df_stats_multiusage_rel %>%
+  subset(somme_usages >1) %>%
+  ggplot(aes(x=somme_usages,y=pourcent_aire_N2000, fill=somme_usages)) +
+  geom_col() +
+  facet_wrap(~mois)+
+  labs(y="Superficie de la zone Natura2000 (en %)", fill="Nombre d'usages")+
+  theme(axis.title.x = element_blank(),
+        strip.text = element_text(size = 34),
+        axis.text = element_text(size = 28),
+        axis.title = element_text(size = 28),
+        legend.position = "none")+
+  geom_text(aes(label = round(pourcent_aire_N2000,2)), vjust = 0.5, size=12)+
+  scale_fill_manual(values=c("springgreen3",
+                             "lightgoldenrodyellow",
+                             "sandybrown","red3"))
+
+p1
+png(file=paste0(output_path,"/multiusage/pourcent_multiusage.png"), 
+    width=1400, height=800)
+p1
+dev.off()
 
 # Création d'un gif pour visualiser les zones multiusage au cours des mois
 imgs <- list.files(input_path, full.names = TRUE, '.png')
@@ -211,3 +258,54 @@ img_animated <- image_animate(img_joined, delay = 100)
 image_write(image = img_animated,
             path = paste0(output_path,"/multiusage/multiusages.gif"))
 
+# TODO: Quels sont les usages qui se superposent le plus ?
+liste.rast.usage
+
+liste.rast.usage = map2(liste.rast.usage, liste.mois, function(r,lm) {
+  names(r) = paste0(names(r),"_",lm)
+  return(r)
+  })
+
+liste.dt.rast = lapply(liste.rast.usage, function(r){
+  a = as.data.frame(data.table(as.data.frame(r)))
+  a = a[complete.cases(a),]
+  return(a)
+  })
+
+# TEst sur JUIN
+bb = as.data.frame(liste.dt.rast[2])
+# REcodage
+# C = couchade, N = nidification, PR = parade, PT = paturage, R = randonnée, V=VTT
+bbb = data.frame(
+couchade_juin = ifelse(bb$couchade_juin == 1, "C",0),
+nidification_TLY_juin = ifelse(bb$nidification_TLY_juin == 1, "N",0),
+parade_TLY_juin = ifelse(bb$parade_TLY_juin == 1, "P",0),
+paturage_juin = ifelse(bb$paturage_juin == 1, "A",0),
+randonnee_pedestre_juin = ifelse(bb$randonnee_pedestre_juin == 1, "R",0),
+VTT_juin = ifelse(bb$VTT_juin == 1, "V",0),
+total = apply(bb,1,sum)
+)
+# garder que pixels avec multiusage
+b4 = bbb %>% subset(total > 1) 
+b4$quels_us = apply(b4, 1,function(df) paste0(df[], collapse=""))
+
+qui_multi = table(gsub('[0-9]',"",b4$quels_us))
+
+ok = as.data.frame(sort(qui_multi))
+# Pour le mois de juin, le multiusage a lieu le plus entre
+# 2 usages =
+# nidification et parade (1524 pixels)
+# randonnée et VTT (1520 pixels)
+# nidification et paturage (1173 pixels)
+# 3 usages =
+# NPR (250 pixels) : Nidification Parade Randonnée
+# NPA (171 pixels) : Nidification Parade Paturage
+# NRV (82 pixels) : Nidification Randonnée VTT
+# 4 usages =
+# NPRV (164 pixels) : Nidification Parade Randonnée VTT
+# NARV (35 pixels) : Nidification Paturage Randonnée VTT
+# NPAR (25 pixels) : Nidification Parade Paturage Randonnée
+
+# surface de chaque usage
+
+(apply(bb,2,sum)*625)/10000
