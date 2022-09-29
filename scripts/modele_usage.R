@@ -2,16 +2,15 @@
 # Nom : Modélisation des usages
 # Auteure : Perle Charlot
 # Date de création : 09-09-2022
-# Dates de modification : 12-09-2022
+# Dates de modification : 29-09-2022
 
 ### Librairies -------------------------------------
 
 library(glmmfields)
 library(MASS)
-
-# library(raster)
+library(raster)
 library(data.table)
-# library(sf)
+library(sf)
 # library(magick)
 # library(corrplot)
 library(ggplot2)
@@ -20,6 +19,53 @@ library(ggplot2)
 # library(fasterize)
 
 ### Fonctions -------------------------------------
+
+# Fonction qui sort les valeurs des var env associées à un usage donné
+ExtractData1Use <- function(usage
+                            ,fenetre_temporelle = liste.mois
+){
+  # # TEST
+  # usage = "couchade"
+  # fenetre_temporelle = liste.mois
+  
+  DataUsageMois <- function(mois){
+    # # TEST
+    # mois = fenetre_temporelle[2]
+    
+    raster.usage.mois.path = list.files(paste0(wd,"/output/par_periode/",mois),usage,full.names = T)
+    if(length(raster.usage.mois.path)!= 0){
+      raster.usage.mois = raster(raster.usage.mois.path)
+      # RAsters environnement
+      all.tif = list.files(paste0(gitCaractMilieu,"/output/ACP/"),pattern = ".tif",recursive = T,full.names = T)
+      all.tif = all.tif[grep(mois,all.tif)]
+      # Retirer dossiers : toutes, ACP_FAMD, CA/sans_ACP_clim
+      all.tif = all.tif[!grepl("toutes",all.tif)]
+      all.tif = all.tif[!grepl("ACP_FAMD",all.tif)]
+      all.tif = all.tif[!grepl("CA/sans_ACP_clim",all.tif)]
+      stack.env = stack(all.tif)
+      
+      # Combiner env + usage
+      stack.env.usage = stack(raster.usage.mois, stack.env)
+      # enlève les NA des bords
+      stack.env.usage <- raster::crop(stack.env.usage, limiteN2000)
+      # stack -> df
+      df.env.usage = as.data.frame(as.data.table(stack.env.usage[]))
+      df.env.usage = na.omit(df.env.usage)
+      # Remove nom mois dans colonnes
+      to.modif = names(df.env.usage)[grep(mois,names(df.env.usage))]
+      new.names = unlist(lapply(to.modif, function(x) substring(x,1,nchar(x) - nchar(mois) - 1)))
+      names(df.env.usage)[grep(mois,names(df.env.usage))] = new.names
+      return(df.env.usage)
+      
+    } else{
+      cat("\n L'usage",usage,"n'est pas présent au mois de",mois,".")
+      return(NA)}
+  }
+  df.e.u = do.call(rbind,lapply(fenetre_temporelle, DataUsageMois))
+  # Remove NA (from absence months)
+  df.e.u = na.omit(df.e.u)
+  return(df.e.u)
+}
 
 ### Constantes -------------------------------------
 
@@ -35,15 +81,15 @@ EPSG_2154 =  "+proj=lcc +lat_1=49 +lat_2=44 +lat_0=46.5 +lon_0=3 +x_0=700000 +y_
 
 # Dossier des variables spatiales & chemins des fichiers
 dos_var_sp <- "C:/Users/perle.charlot/Documents/PhD/DATA/Variables_spatiales_Belledonne/"
+limiteN2000 <- paste0(dos_var_sp, "/limites_etude/cembraie_N2000_limites.gpkg")
 
 #### Tables ####
 gitCaractMilieu = "C:/Users/perle.charlot/Documents/PhD/DATA/R_git/CaractMilieu"
 
-
 #### Autre ####
 liste.mois = c("mai","juin","juillet","aout","septembre")
 # Liste dimensions
-liste.dim=  c("CA","B","PV","CS","D","I")
+liste.dim =  c("CA","B","PV","CS","D","I")
 
 ### Programme -------------------------------------
 
@@ -55,61 +101,18 @@ liste.dim=  c("CA","B","PV","CS","D","I")
 # GLM : binomiale
 # Option B = axes des AFDM par dimension
 
-MergeTbl_for1Month <- function(NOM_MOIS1){
-  # #TEST
-  # NOM_MOIS1 = liste.mois[1]
-  
-  MergeTbl_for1Month_accrossDim <- function(lettre_dimension,
-                                          nom_mois=NOM_MOIS1,
-                                          ACPclimat = "oui"){
-    # #TEST
-    # nom_mois = "juillet"
-    # lettre_dimension = "CA"
-    # ACPclimat = "oui"
-    
-    corresp = data.frame(numero_saison=c("05","06","07","08","09"),
-                         periode = c("mai",'juin','juillet','aout','septembre'))
-    
-    num_mois = corresp$numero_saison[which(corresp$periode == nom_mois)]
-    
-    # Conditions spécifiques pour dim CA
-    if(lettre_dimension=="CA"){
-      if(ACPclimat == "oui"){
-        path_table = paste0(gitCaractMilieu,"/output/ACP/",lettre_dimension,"/avec_ACP_clim/",
-                            num_mois,nom_mois,"/axesFAMD_",lettre_dimension,"_usages_",nom_mois,".csv")
-      }else{
-        path_table = paste0(gitCaractMilieu,"/output/ACP/",lettre_dimension,"/sans_ACP_clim/",
-                            num_mois,nom_mois,"/axesFAMD_",lettre_dimension,"_usages_",nom_mois,".csv")
-      }
-    } else {
-      path_table = paste0(gitCaractMilieu,"/output/ACP/",lettre_dimension,"/",
-                          num_mois,nom_mois,"/axesFAMD_",lettre_dimension,"_usages_",nom_mois,".csv")
-    }
-    
-    table_vars_usa <- fread(path_table, drop="V1")
-    return(table_vars_usa)
-  }
-  
-  # Obtenir une table avec en colonnes 
-  liste_Tbl_MOIS = lapply(liste.dim,  MergeTbl_for1Month_accrossDim)
-  # Identifier les usages présents (pour remplir le by de merge)
-  index_axe3 = grep("axe3",names(liste_Tbl_MOIS[[1]])) +1
-  usages_presents = names(liste_Tbl_MOIS[[1]])[index_axe3:length(names(liste_Tbl_MOIS[[1]]))]
-  # appliquer merge à travers la liste de 6 tables
-  Tbl_MOIS = as.data.frame(Reduce(function(x, y) merge(x, y, by=c("x","y",usages_presents)), liste_Tbl_MOIS))
-  
-  return(Tbl_MOIS)
-  
-}
-# Sort liste de 5 tables, 1/mois
-data_vars_usages <- lapply(liste.mois, MergeTbl_for1Month)
+limiteN2000 <- st_read(limiteN2000)
+
+df.Co = ExtractData1Use("couchade")
+df.Ni = ExtractData1Use("nidification")
+
 
 # Test de modèle pour le mois de juillet
 # Sur l'usage Couchade (Co)
-data_glm = data_vars_usages[[3]]
+data_glm = df.Co
 
 # Rapide visualisation sur quelques axes
-ggplot(data_glm, aes(x=axe1_PV, y=axe2_PV, color=as.factor(Co)))+
+ggplot(data_glm, aes(x=axe1_PV, y=axe2_PV, color=as.factor(couchade)))+
   geom_point(alpha=0.2)
 ggplot(data_glm, aes(x=axe1_B, y=axe2_B, color=as.factor(Co)))+
   geom_point(alpha=0.2)
