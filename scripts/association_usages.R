@@ -2,7 +2,7 @@
 # Nom : Interactions spatiales entre usages
 # Auteure : Perle Charlot
 # Date de création : 05-07-2022
-# Dates de modification : 25-07-2022
+# Dates de modification : 05-08-2022
 
 ### Librairies -------------------------------------
 
@@ -28,13 +28,17 @@ DfUsages <- function(mois){
   usages = stack(list_usages)
   usages_masked <- raster::mask(usages, limiteN2000)
   df_usages_masked = as.data.frame(as.data.table(usages_masked[]))
+  df_usages_coord = cbind(df_usages_masked, raster::coordinates(usages))
   df_usages_masked = na.omit(df_usages_masked)
+  
+  df_usages_coord  = na.omit(df_usages_coord )
+  write.csv(df_usages_coord, paste0(output_path,"/par_periode/",mois,"/coordonnees_usages_",mois,".csv"))
   
   # Statistiques spatiales, par usage
   # pixels de 25*25m  = 625m²
   f = function(colonne){
     (sum(colonne) * 625) / 10000
-  }
+  } # en ha
 
   superficie_usage = apply(df_usages_masked, 2, f)
   aire_N2000 = (dim(df_usages_masked)[1]*625)/10000
@@ -87,6 +91,8 @@ limiteN2000 <- paste0(dos_var_sp, "/limites_etude/cembraie_N2000_limites.gpkg")
 
 #### Tables ####
 
+#### Autre ####
+liste.mois = c("avril","mai","juin","juillet","aout","septembre")
 ### Programme -------------------------------------
 
 limiteN2000 <- st_read(limiteN2000)
@@ -98,6 +104,7 @@ limiteN2000 <- st_read(limiteN2000)
 # dfUsages_08 <- DfUsages("aout")
 # dfUsages_09 <- DfUsages("septembre")
 
+lapply(liste.mois, DfUsages)
 
 #### Coefficient d'association de Yule #### 
 library(psych)
@@ -152,7 +159,7 @@ cor.test(dfUsages_06$paturage, dfUsages_06$nidification_TLY_juin, method = "pear
 
 
 #### Superposition des usages ####
-liste.mois = c("avril","mai","juin","juillet","aout","septembre")
+
 liste.rast.usage = lapply(liste.mois, CarteMultiUsages)
 liste.rast.multiusage = lapply(liste.rast.usage, function(r)sum(r))
 rast.multiusage = stack(liste.rast.multiusage)
@@ -169,7 +176,6 @@ dt_stack <- dt_stack[complete.cases(dt_stack),]
 write.csv(dt_stack, paste0(output_path,"/multiusage/table_points_multiusage.csv"))
 
 # TODO : Statistiques multiusages au cours du temps
-
 stats_multiusage = lapply(liste.rast.multiusage, function(r){  return(table(values(r)))})
 max_len <- max(sapply(stats_multiusage,length))
 stats_multiusage = as.data.frame(do.call("rbind",lapply(stats_multiusage,function(x) x[seq(max_len)])))
