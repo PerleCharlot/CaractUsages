@@ -1,0 +1,91 @@
+---
+title: "Niche d'usage"
+author: "Perle Charlot"
+date: "29/09/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(glmmfields)
+library(MASS)
+library(raster)
+library(data.table)
+library(sf)
+library(caret)
+library(ggplot2)
+library(tidyverse)
+```
+
+## Usage nidification
+
+```{r , echo=FALSE}
+# Bloc des constantes à modifier
+
+wd = getwd()
+df.Ni = fread(paste0(wd,"/output/niches/df_niche_Ni.csv"), drop="V1")
+
+# Test de modèle sur l'usage Ni
+data_glm = df.Ni
+```
+
+Distribution des variables : 
+
+```{r, echo=FALSE}
+names(data_glm)[1] = "usage"
+data_glm %>% 
+  pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
+  ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
+  geom_boxplot()+ 
+  scale_colour_discrete(name = "Nidification", labels = c("Absence", "Présence"))
+
+```
+
+
+```{r , echo=FALSE}
+#make this example reproducible
+set.seed(1)
+#Use 70% of dataset as training set and remaining 30% as testing set
+sample <- sample(c(TRUE, FALSE), nrow(data_glm), replace=TRUE, prob=c(0.7,0.3))
+train <- data_glm[sample, ]
+test <- data_glm[!sample, ] 
+```
+
+Modèle linéaire : GLM binomial
+
+```{r, warning=FALSE, echo=FALSE}
+# Fit modèle
+model.glm <- glm(usage ~ .,
+    family=binomial, 
+    data=train)
+summary(model.glm) # display results
+```
+Sélection des variables à conserver : 
+```{r, warning=FALSE}
+# Sélection des variables
+model.glm.step <- stepAIC(model.glm)
+```
+
+```{r , include=FALSE}
+## S3 method for class 'glm'
+library(DescTools)
+BrierScore(model.glm.step)
+
+library(pROC)
+test$pred_prob <- predict(model.glm.step, test, type="response")
+#test_roc = roc(test$usage ~ test$pred_prob, plot = TRUE, print.auc = TRUE)
+
+# Coefficients
+# exp(coef(glm.Co.step))
+
+test$pred_resp <- ifelse(test$pred_prob > 0.50, 1, 0)
+
+test$usage = as.factor(test$usage)
+test$pred_resp = as.factor(test$pred_resp)
+
+confusionMatrix(test$pred_resp, test$usage)
+
+```
+```{r ,echo=FALSE}
+roc(test$usage ~ test$pred_prob, plot = TRUE, print.auc = TRUE)
+```
