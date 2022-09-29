@@ -11,6 +11,7 @@ library(MASS)
 library(raster)
 library(data.table)
 library(sf)
+library(caret)
 # library(magick)
 # library(corrplot)
 library(ggplot2)
@@ -98,92 +99,120 @@ liste.dim =  c("CA","B","PV","CS","D","I")
 # A - toutes (~ 40)
 # B - les axes des AFDM par dimension (~20)
 
-# GLM : binomiale
+#### GLM : binomiale ####
 # Option B = axes des AFDM par dimension
 
 limiteN2000 <- st_read(limiteN2000)
 
-df.Co = ExtractData1Use("couchade")
+# Création d'un df par usage
 df.Ni = ExtractData1Use("nidification")
+df.Co = ExtractData1Use("couchade")
+df.Pa = ExtractData1Use("paturage")
+df.Rp = ExtractData1Use("randonnee_pedestre")
+df.Vt = ExtractData1Use("VTT")
+df.Lk = ExtractData1Use("parade")
+
+write.csv(df.Ni, paste0(wd,"/output/niches/df_niche_Ni.csv"))
+write.csv(df.Co, paste0(wd,"/output/niches/df_niche_Co.csv"))
+write.csv(df.Pa, paste0(wd,"/output/niches/df_niche_Pa.csv"))
+write.csv(df.Rp, paste0(wd,"/output/niches/df_niche_Rp.csv"))
+write.csv(df.Vt, paste0(wd,"/output/niches/df_niche_Vt.csv"))
+write.csv(df.Lk, paste0(wd,"/output/niches/df_niche_Lk.csv"))
 
 
-# Test de modèle pour le mois de juillet
-# Sur l'usage Couchade (Co)
-data_glm = df.Co
+data_glm = df.Ni
+names(data_glm)[1] = "usage"
 
-# Rapide visualisation sur quelques axes
-ggplot(data_glm, aes(x=axe1_PV, y=axe2_PV, color=as.factor(couchade)))+
-  geom_point(alpha=0.2)
-ggplot(data_glm, aes(x=axe1_B, y=axe2_B, color=as.factor(Co)))+
-  geom_point(alpha=0.2)
+library(tidyverse)
 
-# Fit modèle
-glm.Co <- glm(Co ~ axe1_CA + axe2_CA + axe3_CA +
-      axe1_B + axe2_B + axe3_B +
-      axe1_PV + axe2_PV + axe3_PV +
-      axe1_CS + axe2_CS + axe3_CS + 
-      axe1_D + axe2_D + 
-      axe1_I + axe2_I + axe3_I,
-    family=binomial, 
-    data=data_glm)
-summary(glm.Co) # display results
-
-# Sélection des variables
-glm.Co.step <- stepAIC(glm.Co)
-glm.Co.step$anova
-# best model sans axe1 et axe3 de I, et sans axe1 de D
+data_glm %>% 
+  pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
+  ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
+  geom_boxplot()+ 
+  scale_colour_discrete(name = "Nidification", labels = c("Absence", "Présence"))
 
 
-summary(glm.Co.step)
+# # Test de modèle sur l'usage Couchade (Co)
+# data_glm = df.Ni
+# names(data_glm)[1] = "usage"
 
-confint(glm.Co.step) # 95% CI for the coefficients
+# #make this example reproducible
+# set.seed(1)
+# #Use 70% of dataset as training set and remaining 30% as testing set
+# sample <- sample(c(TRUE, FALSE), nrow(data_glm), replace=TRUE, prob=c(0.7,0.3))
+# train <- data_glm[sample, ]
+# test <- data_glm[!sample, ] 
+# # Fit modèle
+# model.glm <- glm(usage ~ .,
+#     family=binomial, 
+#     data=train)
+# summary(model.glm) # display results
+# # Sélection des variables
+# model.glm.step <- stepAIC(model.glm)
+# # glm.Co.step$anova
+# # summary(glm.Co.step)
+# #confint(glm.Co.step) # 95% CI for the coefficients
+# # Odds ratio
+# # exp(coef(glm.Co.step)) # exponentiated coefficients
+# # exp(confint(glm.Co)) # 95% CI for exponentiated coefficients
+# # pred = predict(glm.Co.step, type="response") # predicted values
+# # residuals(glm.Co.step, type="deviance") # residuals 
+# 
+# # #null.model <- glm(Co ~ 1, family = binomial,data=data_glm)
+# # pseudoR2 <- (glm.Co.step$null.deviance - glm.Co.step$deviance)/glm.Co.step$null.deviance
+# # pseudoR2
+# 
+# ## S3 method for class 'glm'
+# library(DescTools)
+# BrierScore(model.glm.step)
+# 
+# # Etape AUC/ROC tout pour trouver le seuil de proba où ça bascule en présence
+# #https://stats.stackexchange.com/questions/172945/rmse-root-mean-squared-error-for-logistic-models
+# 
+# library(pROC)
+# test$pred_prob <- predict(model.glm.step, test, type="response")
+# test_roc = roc(test$usage ~ test$pred_prob, plot = TRUE, print.auc = TRUE)
+# 
+# # exp(coef(glm.Co.step))
+# 
+# test$pred_resp <- ifelse(test$pred_prob > 0.50, 1, 0)
+# 
+# test$usage = as.factor(test$usage)
+# test$pred_resp = as.factor(test$pred_resp)
+# 
+# confusionMatrix(test$pred_resp, test$usage)
 
-# Odds ratio
-exp(coef(glm.Co.step)) # exponentiated coefficients
-exp(confint(glm.Co)) # 95% CI for exponentiated coefficients
-pred = predict(glm.Co.step, type="response") # predicted values
-residuals(glm.Co.step, type="deviance") # residuals 
-
-#null.model <- glm(Co ~ 1, family = binomial,data=data_glm)
-pseudoR2 <- (glm.Co.step$null.deviance - glm.Co.step$deviance)/glm.Co.step$null.deviance
-pseudoR2
-
-
-# Etape AUC/ROC tout pour trouver le seuil de proba où ça bascule en présence
-#https://stats.stackexchange.com/questions/172945/rmse-root-mean-squared-error-for-logistic-models
 
 #### GLM spatial #####
-#https://cran.r-project.org/web/packages/glmmfields/vignettes/spatial-glms.html
-m_spatial <- glmmfields(Co ~ axe1_CA + axe2_CA + axe3_CA +
-                          axe1_B + axe2_B + axe3_B +
-                          axe1_PV + axe2_PV + axe3_PV +
-                          axe1_CS + axe2_CS + axe3_CS + 
-                          axe1_D + axe2_D + 
-                          axe1_I + axe2_I + axe3_I,
-                        data = data_glm, 
-                        family = binomial(link = "logit"),
-                        lat = "y", lon = "x", 
-                        nknots = 5, iter = 500, chains = 4,
-                        seed = 123 # passed to rstan::sampling()
-                        )
-m_spatial
-plot(m_spatial, type = "spatial-residual", link = TRUE) +
-  geom_point(size = 3)
-# Residual vs fitted
-plot(m_spatial, type = "residual-vs-fitted")
-# link scale:
-p <- predict(m_spatial)
-head(p)
-# response scale:
-p <- predict(m_spatial, type = "response")
-head(p)
-# get our parameter estimates as a data frame:
-head(tidy(m_spatial, conf.int = TRUE, conf.method = "HPDinterval"))
+# #https://cran.r-project.org/web/packages/glmmfields/vignettes/spatial-glms.html
+# m_spatial <- glmmfields(Co ~ axe1_CA + axe2_CA + axe3_CA +
+#                           axe1_B + axe2_B + axe3_B +
+#                           axe1_PV + axe2_PV + axe3_PV +
+#                           axe1_CS + axe2_CS + axe3_CS + 
+#                           axe1_D + axe2_D + 
+#                           axe1_I + axe2_I + axe3_I,
+#                         data = data_glm, 
+#                         family = binomial(link = "logit"),
+#                         lat = "y", lon = "x", 
+#                         nknots = 5, iter = 500, chains = 4,
+#                         seed = 123 # passed to rstan::sampling()
+#                         )
+# m_spatial
+# plot(m_spatial, type = "spatial-residual", link = TRUE) +
+#   geom_point(size = 3)
+# # Residual vs fitted
+# plot(m_spatial, type = "residual-vs-fitted")
+# # link scale:
+# p <- predict(m_spatial)
+# head(p)
+# # response scale:
+# p <- predict(m_spatial, type = "response")
+# head(p)
+# # get our parameter estimates as a data frame:
+# head(tidy(m_spatial, conf.int = TRUE, conf.method = "HPDinterval"))
+# 
 
 
 
-
-
-
-# RF
+#### RF ####
 
