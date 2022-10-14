@@ -2,29 +2,45 @@
 title: "Niche d'usage"
 author: "Perle Charlot"
 date: "29/09/2022"
-output: html_document
+output: 
+  html_document:
+    toc: TRUE
+    toc_depth: 2
+    keep_md: true
+    
 ---
 
 ```{r setup, include=FALSE}
+
+
+
 knitr::opts_chunk$set(echo = TRUE)
-library(glmmfields)
-library(MASS)
+
 library(raster)
 library(data.table)
 library(sf)
 library(caret)
 library(ggplot2)
 library(tidyverse)
+library(rmarkdown)
+library(knitr)
+library(dplyr)
+library(raster)
+library(mapview)
+library(leaflet)
+library(leafem)
+
+# Espace de travail
+wd <- getwd()
+# Dossier des outputs (dans le git)
+output_path <- paste0(wd,"/output/")
 ```
 
+# Visualisation {.tabset}
+
 ## Usage nidification
-
 ```{r , echo=FALSE}
-# Bloc des constantes à modifier
-
-wd = getwd()
-df.Ni = fread(paste0(wd,"/output/niches/df_niche_Ni.csv"), drop="V1")
-
+df.Ni = fread(paste0(output_path,"/niches/df_niche_nidification.csv"), drop="V1")
 # Test de modèle sur l'usage Ni
 data_glm = df.Ni
 ```
@@ -41,51 +57,479 @@ data_glm %>%
 
 ```
 
+## Usage lek
+```{r , echo=FALSE}
+df.Lk = fread(paste0(output_path,"/niches/df_niche_parade.csv"), drop="V1")
+# Test de modèle sur l'usage Ni
+data_glm = df.Lk
+```
+
+Distribution des variables : 
+
+```{r, echo=FALSE}
+names(data_glm)[1] = "usage"
+data_glm %>% 
+  pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
+  ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
+  geom_boxplot()+ 
+  scale_colour_discrete(name = "Lek", labels = c("Absence", "Présence"))
+
+```
+
+## Usage pâturage
 
 ```{r , echo=FALSE}
-#make this example reproducible
-set.seed(1)
-#Use 70% of dataset as training set and remaining 30% as testing set
-sample <- sample(c(TRUE, FALSE), nrow(data_glm), replace=TRUE, prob=c(0.7,0.3))
-train <- data_glm[sample, ]
-test <- data_glm[!sample, ] 
+df.Pa = fread(paste0(output_path,"/niches/df_niche_paturage.csv"), drop="V1")
+# Test de modèle sur l'usage Ni
+data_glm = df.Pa
 ```
 
-Modèle linéaire : GLM binomial
+Distribution des variables : 
 
-```{r, warning=FALSE, echo=FALSE}
-# Fit modèle
-model.glm <- glm(usage ~ .,
-    family=binomial, 
-    data=train)
-summary(model.glm) # display results
-```
-Sélection des variables à conserver : 
-```{r, warning=FALSE}
-# Sélection des variables
-model.glm.step <- stepAIC(model.glm)
-```
-
-```{r , include=FALSE}
-## S3 method for class 'glm'
-library(DescTools)
-BrierScore(model.glm.step)
-
-library(pROC)
-test$pred_prob <- predict(model.glm.step, test, type="response")
-#test_roc = roc(test$usage ~ test$pred_prob, plot = TRUE, print.auc = TRUE)
-
-# Coefficients
-# exp(coef(glm.Co.step))
-
-test$pred_resp <- ifelse(test$pred_prob > 0.50, 1, 0)
-
-test$usage = as.factor(test$usage)
-test$pred_resp = as.factor(test$pred_resp)
-
-confusionMatrix(test$pred_resp, test$usage)
+```{r, echo=FALSE}
+names(data_glm)[1] = "usage"
+data_glm %>% 
+  pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
+  ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
+  geom_boxplot()+ 
+  scale_colour_discrete(name = "Pâturage", labels = c("Absence", "Présence"))
 
 ```
-```{r ,echo=FALSE}
-roc(test$usage ~ test$pred_prob, plot = TRUE, print.auc = TRUE)
+
+## Usage couchade
+```{r , echo=FALSE}
+df.Co = fread(paste0(output_path,"/niches/df_niche_couchade.csv"), drop="V1")
+# Test de modèle sur l'usage Ni
+data_glm = df.Co
 ```
+
+Distribution des variables : 
+
+```{r, echo=FALSE}
+names(data_glm)[1] = "usage"
+data_glm %>% 
+  pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
+  ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
+  geom_boxplot()+ 
+  scale_colour_discrete(name = "Couchade", labels = c("Absence", "Présence"))
+
+```
+
+## Usage randonnée pédestre
+```{r , echo=FALSE}
+df.Ra = fread(paste0(output_path,"/niches/df_niche_randonnee_pedestre.csv"), drop="V1")
+# Test de modèle sur l'usage Ni
+data_glm = df.Ra
+```
+
+Distribution des variables : 
+
+```{r, echo=FALSE}
+names(data_glm)[1] = "usage"
+data_glm %>% 
+  pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
+  ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
+  geom_boxplot()+ 
+  scale_colour_discrete(name = "Randonnée\npédestre", labels = c("Absence", "Présence"))
+
+```
+
+## Usage VTT
+```{r , echo=FALSE}
+df.Vt = fread(paste0(output_path,"/niches/df_niche_VTT.csv"), drop="V1")
+# Test de modèle sur l'usage Ni
+data_glm = df.Vt
+```
+
+Distribution des variables : 
+
+```{r, echo=FALSE}
+names(data_glm)[1] = "usage"
+data_glm %>% 
+  pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
+  ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
+  geom_boxplot()+ 
+  scale_colour_discrete(name = "VTT", labels = c("Absence", "Présence"))
+
+```
+
+# Modélisation {.tabset}
+
+*Modèle linéaire : GLM binomial.*
+
+Pour chaque usage, on construit un modèle linéaire basé sur 70% des données environnementales (ici, les 17 axes des 6 AFDM sur les 6 dimensions), aggrégées le long du temps (de mai à septembre).
+La sélection des variables à conserver dans le modèle a été faite par comparaison d'AIC entre modèles emboîtés ```MASS::stepAIC```.
+
+Les 30% des données restantes sont utilisées pour faire prédire le modèle, et calculer des indices pour mesurer sa capacité prédictive, sa fiabilité.  
+On impose un seuil arbitraire de 0.5 pour transformer les probabilités de présence en présence/absence.
+
+## Usage nidification
+
+```{r , echo=FALSE}
+load(file = paste0(output_path,"/niches/Ni/modele.rdata"))
+summary(model.glm.step)
+```
+
+Courbe ROC et AUC :
+```{r, echo=FALSE,out.width = "70%"}
+img1_path <- paste0(output_path,"/niches/Ni/roc.png")
+include_graphics(img1_path)
+```
+
+Matrice de confusion :
+```{r , echo=FALSE}
+load(file=paste0(output_path,"/niches/Ni/CM.rdata"))
+CM
+```
+
+## Usage lek
+
+```{r , echo=FALSE}
+load(file = paste0(output_path,"/niches/Lk/modele.rdata"))
+summary(model.glm.step)
+```
+
+Courbe ROC et AUC :
+```{r, echo=FALSE,out.width = "70%"}
+img1_path <- paste0(output_path,"/niches/Lk/roc.png")
+include_graphics(img1_path)
+```
+
+Matrice de confusion :
+```{r , echo=FALSE}
+load(file=paste0(output_path,"/niches/Lk/CM.rdata"))
+CM
+```
+
+## Usage pâturage
+
+```{r , echo=FALSE}
+load(file = paste0(output_path,"/niches/Pa/modele.rdata"))
+summary(model.glm.step)
+```
+
+Courbe ROC et AUC :
+```{r, echo=FALSE,out.width = "70%"}
+img1_path <- paste0(output_path,"/niches/Pa/roc.png")
+include_graphics(img1_path)
+```
+
+Matrice de confusion :
+```{r , echo=FALSE}
+load(file=paste0(output_path,"/niches/Pa/CM.rdata"))
+CM
+```
+
+## Usage couchade
+
+```{r , echo=FALSE}
+load(file = paste0(output_path,"/niches/Co/modele.rdata"))
+summary(model.glm.step)
+```
+
+Courbe ROC et AUC :
+```{r, echo=FALSE,out.width = "70%"}
+img1_path <- paste0(output_path,"/niches/Co/roc.png")
+include_graphics(img1_path)
+```
+
+Matrice de confusion :
+```{r , echo=FALSE}
+load(file=paste0(output_path,"/niches/Co/CM.rdata"))
+CM
+```
+
+## Usage randonnée pédestre
+
+```{r , echo=FALSE}
+load(file = paste0(output_path,"/niches/Rp/modele.rdata"))
+summary(model.glm.step)
+```
+
+Courbe ROC et AUC :
+```{r, echo=FALSE,out.width = "70%"}
+img1_path <- paste0(output_path,"/niches/Rp/roc.png")
+include_graphics(img1_path)
+```
+
+Matrice de confusion :
+```{r , echo=FALSE}
+load(file=paste0(output_path,"/niches/Rp/CM.rdata"))
+CM
+```
+
+## Usage VTT
+
+```{r , echo=FALSE}
+load(file = paste0(output_path,"/niches/Vt/modele.rdata"))
+summary(model.glm.step)
+```
+
+Courbe ROC et AUC :
+```{r, echo=FALSE,out.width = "70%"}
+img1_path <- paste0(output_path,"/niches/Vt/roc.png")
+include_graphics(img1_path)
+```
+
+Matrice de confusion :
+```{r , echo=FALSE}
+load(file=paste0(output_path,"/niches/Vt/CM.rdata"))
+CM
+```
+
+
+
+# Prédiction {.tabset}
+## Usage nidification
+Pour le mois d'août.
+```{r, echo=FALSE,fig.align="center",message=FALSE,warning=FALSE}
+liste_rast = list.files(paste0(output_path,"/niches/Ni/predictions/"),".tif",
+                        full.names = T)
+r = stack(liste_rast[1])
+
+names(r)=c("observation", "probabilite_prediction")
+
+# mapviewOptions(na.color = "transparent",
+#                basemaps="OpenStreetMap",
+#                viewer.suppress=TRUE,
+#                trim=TRUE)
+
+obs_sp = rasterToPolygons(r$observation,fun=function(x)x==1, dissolve=TRUE)
+obs_sp <- spTransform(obs_sp, CRS("+init=epsg:4326"))
+
+pal <- colorNumeric(palette = "viridis", domain = c(0,1),reverse = TRUE,
+                    na.color = "transparent")
+leaflet() %>% 
+  addTiles() %>%
+  addRasterImage(r$probabilite_prediction, opacity = 0.6, 
+                 colors = pal, 
+                 group="Probabilité de prédiction") %>%
+  addPolygons(data = obs_sp, fill = F,weight = 1, smoothFactor = 0.5,
+              color = "black", group = "Observation") %>%
+  addLayersControl(
+    overlayGroups = c("Probabilité de prédiction","Observation"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>%
+  addLegend("bottomright", pal = pal, values = c(0,1),
+    title = "Probabilité de présence de l'usage",
+    opacity = 1
+  ) %>%
+  addMouseCoordinates() %>%
+  addImageQuery(r$probabilite_prediction, type="mousemove",
+                digits = 2)
+
+
+
+```
+
+## Usage lek
+
+Pour le mois de juin.
+```{r, echo=FALSE,fig.align="center",message=FALSE,warning=FALSE}
+liste_rast = list.files(paste0(output_path,"/niches/Lk/predictions/"),".tif",
+                        full.names = T)
+r = stack(liste_rast[1])
+
+names(r)=c("observation", "probabilite_prediction")
+
+# mapviewOptions(na.color = "transparent",
+#                basemaps="OpenStreetMap",
+#                viewer.suppress=TRUE,
+#                trim=TRUE)
+
+obs_sp = rasterToPolygons(r$observation,fun=function(x)x==1, dissolve=TRUE)
+obs_sp <- spTransform(obs_sp, CRS("+init=epsg:4326"))
+
+pal <- colorNumeric(palette = "viridis", domain = c(0,1),reverse = TRUE,
+                    na.color = "transparent")
+leaflet() %>% 
+  addTiles() %>%
+  addRasterImage(r$probabilite_prediction, opacity = 0.6, 
+                 colors = pal, 
+                 group="Probabilité de prédiction") %>%
+  addPolygons(data = obs_sp, fill = F,weight = 1, smoothFactor = 0.5,
+              color = "black", group = "Observation") %>%
+  addLayersControl(
+    overlayGroups = c("Probabilité de prédiction","Observation"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>%
+  addLegend("bottomright", pal = pal, values = c(0,1),
+    title = "Probabilité de présence de l'usage",
+    opacity = 1
+  ) %>%
+  addMouseCoordinates() %>%
+  addImageQuery(r$probabilite_prediction, type="mousemove",
+                digits = 2)
+
+
+
+```
+
+## Usage pâturage
+Pour le mois d'août.
+```{r, echo=FALSE,fig.align="center",message=FALSE,warning=FALSE}
+liste_rast = list.files(paste0(output_path,"/niches/Pa/predictions/"),".tif",
+                        full.names = T)
+r = stack(liste_rast[1])
+
+names(r)=c("observation", "probabilite_prediction")
+
+# mapviewOptions(na.color = "transparent",
+#                basemaps="OpenStreetMap",
+#                viewer.suppress=TRUE,
+#                trim=TRUE)
+
+obs_sp = rasterToPolygons(r$observation,fun=function(x)x==1, dissolve=TRUE)
+obs_sp <- spTransform(obs_sp, CRS("+init=epsg:4326"))
+
+pal <- colorNumeric(palette = "viridis", domain = c(0,1),reverse = TRUE,
+                    na.color = "transparent")
+leaflet() %>% 
+  addTiles() %>%
+  addRasterImage(r$probabilite_prediction, opacity = 0.6, 
+                 colors = pal, 
+                 group="Probabilité de prédiction") %>%
+  addPolygons(data = obs_sp, fill = F,weight = 1, smoothFactor = 0.5,
+              color = "black", group = "Observation") %>%
+  addLayersControl(
+    overlayGroups = c("Probabilité de prédiction","Observation"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>%
+  addLegend("bottomright", pal = pal, values = c(0,1),
+    title = "Probabilité de présence de l'usage",
+    opacity = 1
+  ) %>%
+  addMouseCoordinates() %>%
+  addImageQuery(r$probabilite_prediction, type="mousemove",
+                digits = 2)
+
+
+
+```
+
+## Usage couchade
+Pour le mois d'août.
+```{r, echo=FALSE,fig.align="center",message=FALSE,warning=FALSE}
+liste_rast = list.files(paste0(output_path,"/niches/Co/predictions/"),".tif",
+                        full.names = T)
+r = stack(liste_rast[1])
+
+names(r)=c("observation", "probabilite_prediction")
+
+# mapviewOptions(na.color = "transparent",
+#                basemaps="OpenStreetMap",
+#                viewer.suppress=TRUE,
+#                trim=TRUE)
+
+obs_sp = rasterToPolygons(r$observation,fun=function(x)x==1, dissolve=TRUE)
+obs_sp <- spTransform(obs_sp, CRS("+init=epsg:4326"))
+
+pal <- colorNumeric(palette = "viridis", domain = c(0,1),reverse = TRUE,
+                    na.color = "transparent")
+leaflet() %>% 
+  addTiles() %>%
+  addRasterImage(r$probabilite_prediction, opacity = 0.6, 
+                 colors = pal, 
+                 group="Probabilité de prédiction") %>%
+  addPolygons(data = obs_sp, fill = F,weight = 1, smoothFactor = 0.5,
+              color = "black", group = "Observation") %>%
+  addLayersControl(
+    overlayGroups = c("Probabilité de prédiction","Observation"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>%
+  addLegend("bottomright", pal = pal, values = c(0,1),
+    title = "Probabilité de présence de l'usage",
+    opacity = 1
+  ) %>%
+  addMouseCoordinates() %>%
+  addImageQuery(r$probabilite_prediction, type="mousemove",
+                digits = 2)
+
+
+
+```
+
+## Usage randonnée pédestre
+Pour le mois d'août.
+```{r, echo=FALSE,fig.align="center",message=FALSE,warning=FALSE}
+liste_rast = list.files(paste0(output_path,"/niches/Rp/predictions/"),".tif",
+                        full.names = T)
+r = stack(liste_rast[1])
+
+names(r)=c("observation", "probabilite_prediction")
+
+# mapviewOptions(na.color = "transparent",
+#                basemaps="OpenStreetMap",
+#                viewer.suppress=TRUE,
+#                trim=TRUE)
+
+obs_sp = rasterToPolygons(r$observation,fun=function(x)x==1, dissolve=TRUE)
+obs_sp <- spTransform(obs_sp, CRS("+init=epsg:4326"))
+
+pal <- colorNumeric(palette = "viridis", domain = c(0,1),reverse = TRUE,
+                    na.color = "transparent")
+leaflet() %>% 
+  addTiles() %>%
+  addRasterImage(r$probabilite_prediction, opacity = 0.6, 
+                 colors = pal, 
+                 group="Probabilité de prédiction") %>%
+  addPolygons(data = obs_sp, fill = F,weight = 1, smoothFactor = 0.5,
+              color = "black", group = "Observation") %>%
+  addLayersControl(
+    overlayGroups = c("Probabilité de prédiction","Observation"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>%
+  addLegend("bottomright", pal = pal, values = c(0,1),
+    title = "Probabilité de présence de l'usage",
+    opacity = 1
+  ) %>%
+  addMouseCoordinates() %>%
+  addImageQuery(r$probabilite_prediction, type="mousemove",
+                digits = 2)
+
+
+
+```
+
+## Usage VTT
+Pour le mois d'août.
+```{r, echo=FALSE,fig.align="center",message=FALSE,warning=FALSE}
+liste_rast = list.files(paste0(output_path,"/niches/Vt/predictions/"),".tif",
+                        full.names = T)
+r = stack(liste_rast[1])
+
+names(r)=c("observation", "probabilite_prediction")
+
+# mapviewOptions(na.color = "transparent",
+#                basemaps="OpenStreetMap",
+#                viewer.suppress=TRUE,
+#                trim=TRUE)
+
+obs_sp = rasterToPolygons(r$observation,fun=function(x)x==1, dissolve=TRUE)
+obs_sp <- spTransform(obs_sp, CRS("+init=epsg:4326"))
+
+pal <- colorNumeric(palette = "viridis", domain = c(0,1),reverse = TRUE,
+                    na.color = "transparent")
+leaflet() %>% 
+  addTiles() %>%
+  addRasterImage(r$probabilite_prediction, opacity = 0.6, 
+                 colors = pal, 
+                 group="Probabilité de prédiction") %>%
+  addPolygons(data = obs_sp, fill = F,weight = 1, smoothFactor = 0.5,
+              color = "black", group = "Observation") %>%
+  addLayersControl(
+    overlayGroups = c("Probabilité de prédiction","Observation"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>%
+  addLegend("bottomright", pal = pal, values = c(0,1),
+    title = "Probabilité de présence de l'usage",
+    opacity = 1
+  ) %>%
+  addMouseCoordinates() %>%
+  addImageQuery(r$probabilite_prediction, type="mousemove",
+                digits = 2)
+
+
+
+```
+
