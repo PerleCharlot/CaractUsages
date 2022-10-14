@@ -2,21 +2,22 @@
 # Nom : Modélisation des usages
 # Auteure : Perle Charlot
 # Date de création : 09-09-2022
-# Dates de modification : 29-09-2022
+# Dates de modification : 12-10-2022
 
 ### Librairies -------------------------------------
-
 library(glmmfields)
 library(MASS)
 library(raster)
 library(data.table)
 library(sf)
 library(caret)
+library(DescTools)
+library(pROC)
 # library(magick)
 # library(corrplot)
 library(ggplot2)
 # library(dplyr)
-# library(tidyverse)
+library(tidyverse)
 # library(fasterize)
 
 ### Fonctions -------------------------------------
@@ -45,10 +46,25 @@ ExtractData1Use <- function(usage
       all.tif = all.tif[!grepl("CA/sans_ACP_clim",all.tif)]
       stack.env = stack(all.tif)
       
+      # ! ne sert à rien de le recalculer à chaque fois si existe déjà
+      # Sauvegarder table des valeurs des rasters par mois
+      if(!dir.exists(paste0(input_path,"/vars_env/",mois))){
+        dir.create(paste0(input_path,"/vars_env/",mois))
+      }
+      if(length(list.files(paste0(input_path,"/vars_env/",mois))) == 0){
+        df.env = as.data.frame(as.data.table(stack.env[]))
+        df.env = cbind(coordinates(stack.env), df.env)
+        # Remove nom mois dans colonnes
+        to.modif = names(df.env)[grep(mois,names(df.env))]
+        new.names = unlist(lapply(to.modif, function(x) substring(x,1,nchar(x) - nchar(mois) - 1)))
+        names(df.env)[grep(mois,names(df.env))] = new.names
+        write_csv2(df.env, paste0(input_path,"/vars_env/",mois,"/dt_vars_FAMD.csv"))
+      } else{cat(paste0("\n Le tableau des variables FAMD du mois de ",mois," a déjà été calculé."))}
+      
       # Combiner env + usage
       stack.env.usage = stack(raster.usage.mois, stack.env)
       # enlève les NA des bords
-      stack.env.usage <- raster::crop(stack.env.usage, limiteN2000)
+      stack.env.usage <- raster::crop(stack.env.usage, limiteN2000.shp)
       # stack -> df
       df.env.usage = as.data.frame(as.data.table(stack.env.usage[]))
       df.env.usage = na.omit(df.env.usage)
@@ -65,7 +81,117 @@ ExtractData1Use <- function(usage
   df.e.u = do.call(rbind,lapply(fenetre_temporelle, DataUsageMois))
   # Remove NA (from absence months)
   df.e.u = na.omit(df.e.u)
-  return(df.e.u)
+  #return(df.e.u)
+  write.csv(df.e.u, paste0(wd,"/output/niches/df_niche_",usage,".csv"))
+}
+
+# Crée un ENM (pour 1 usage donné), puis prédit tous les mois
+CreateModelUsage <- function(nom_court_usage){
+  
+  # # TEST
+  # nom_court_usage = "Ni"
+  
+  if(!dir.exists(paste0(output_path,"/niches/",nom_court_usage))){
+    dir.create(paste0(output_path,"/niches/",nom_court_usage))
+  }
+  
+  # Import données
+  corresp_nom_us = data.frame(Nom=c("Nidification","Lek","Couchade","Pâturage","Randonnée","VTT"),
+                              Nom_court = c("Ni","Lk","Co","Pa","Rp","Vt"),
+                              nom_long = c("nidification","parade","couchade","paturage","randonnee_pedestre","VTT"))
+  nom_beau = corresp_nom_us$Nom[corresp_nom_us$Nom_court == nom_court_usage]
+  nom_lg = corresp_nom_us$nom_long[corresp_nom_us$Nom_court == nom_court_usage]
+  data_glm = fread(paste0(output_path,"/niches/df_niche_",nom_lg,".csv"), drop="V1")
+  names(data_glm)[1] = "usage"
+  # Visualisation distribution sur axes FAMD
+  plot = data_glm %>% 
+    pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
+    ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
+    geom_boxplot()+ 
+    scale_colour_discrete(name = nom_beau, labels = c("Absence", "Présence"))+
+    theme(text = element_text(size=14))
+  # Sauvegarde
+  png(file=paste0(output_path,"/niches/",nom_court_usage,"/viz_distrib_famd.png"), 
+      width=1400, height=800)
+  print(plot)
+  dev.off()
+  
+  # Modèle
+  sample <- sample(c(TRUE, FALSE), nrow(data_glm), replace=TRUE, prob=c(0.7,0.3))
+  train <- data_glm[sample, ]
+  test <- data_glm[!sample, ] 
+  model.glm <- glm(usage ~ ., family=binomial, data=train)
+  model.glm.step <- stepAIC(model.glm)
+  # Enregistrer le modèle pour pouvoir ensuite echo = F
+  save(model.glm.step, file = paste0(output_path,"/niches/",nom_court_usage,"/modele.rdata"))
+  
+  # Coefficients
+  # exp(coef(glm.Co.step))
+  
+  # Tester fiabilité modèle : score de Brier, matrice de confusion et AUC/ROC
+  brier_score = BrierScore(model.glm.step)
+  # Prédire sur jeu test pour tester accuracy + AUC
+  test$pred_prob <- predict(model.glm.step, test, type="response")
+  
+  test$pred_resp <- ifelse(test$pred_prob > 0.50, 1, 0)
+  test$usage = as.factor(test$usage)
+  test$pred_resp = as.factor(test$pred_resp)
+  # Sauvegarde AUC/ROC
+  png(file=paste0(output_path,"/niches/",nom_court_usage,"/roc.png"), 
+      width=800, height=800)
+  print(roc(test$usage ~ test$pred_prob, plot = TRUE, print.auc = TRUE))
+  dev.off()
+  # TODO : trouver meilleur seuil pour convertir proba en P/A
+  # library(ROCR)
+  # ROCR_pred_test <- prediction(test$pred_prob,test$usage)
+  # ROCR_perf_test <- performance(ROCR_pred_test,'sens',"spec")
+  # ROCR_perf_test2 <- performance(ROCR_pred_test,'tpr',"fpr")
+  # plot(ROCR_perf_test2)
+  # cost_perf = performance(ROCR_pred_test, "cost") 
+  # ROCR_pred_test@cutoffs[[1]][which.min(cost_perf@y.values[[1]])]
+  
+  # Sauvegarde matrice de confusion
+  CM = confusionMatrix(test$pred_resp, test$usage)
+  save(CM, file=paste0(output_path,"/niches/",nom_court_usage,"/CM.rdata"))
+  
+  # Prédiction spatialisée
+  predUsageMois <- function(mois){
+    # # TEST
+    # mois = "mai"
+    
+    if(!dir.exists(paste0(output_path,"/niches/",nom_court_usage,"/predictions/"))){
+      dir.create(paste0(output_path,"/niches/",nom_court_usage,"/predictions/"))
+    }
+    
+    t = try(raster(paste0(output_path,"/par_periode/",mois,"/",nom_lg,".tif")),
+            silent = TRUE)
+    if(inherits(t, "try-error")) {
+      # Si l'usage n'est pas présent le mois considéré
+      cat(paste0("\nL'usage ", nom_beau," n'est pas présent le mois ",mois,"."))
+    } else{
+      
+      df.env <- fread(paste0(input_path,"/vars_env/",mois,"/dt_vars_FAMD.csv"),dec=",")
+      df.env$prob <- predict(model.glm.step, df.env, type="response")
+      df.env$pred <- ifelse(df.env$prob > 0.50, 1, 0)
+      
+      raster_prob = rasterFromXYZ(data.frame(df.env$x, df.env$y, df.env$prob), crs=EPSG_2154)
+      raster_obs = raster(paste0(output_path,"/par_periode/",mois,"/",nom_lg,".tif"))
+      # mask (car 0 confondu avec NA hors N2000)
+      raster_obs <- mask(raster_obs, limiteN2000.shp)
+      
+      all_rasters = stack(raster_obs, raster_prob)
+      names(all_rasters) = c("observation","probabilite_prediction")
+      # plot(all_rasters, colNA='black')
+      
+      writeRaster(all_rasters, 
+                  paste0(output_path,"/niches/",nom_court_usage,
+                         "/predictions/rasters_pred_",mois,".tif"),
+                  overwrite=TRUE)
+      cat(paste0("\nL'usage ", nom_beau," a été prédit pour le mois de ",mois,"."))
+    }
+  }
+  
+  lapply(liste.mois, predUsageMois)
 }
 
 ### Constantes -------------------------------------
@@ -91,6 +217,8 @@ gitCaractMilieu = "C:/Users/perle.charlot/Documents/PhD/DATA/R_git/CaractMilieu"
 liste.mois = c("mai","juin","juillet","aout","septembre")
 # Liste dimensions
 liste.dim =  c("CA","B","PV","CS","D","I")
+# Liste usages
+liste.usages = c("Ni","Lk","Co","Pa","Rp","Vt")
 
 ### Programme -------------------------------------
 
@@ -102,34 +230,43 @@ liste.dim =  c("CA","B","PV","CS","D","I")
 #### GLM : binomiale ####
 # Option B = axes des AFDM par dimension
 
-limiteN2000 <- st_read(limiteN2000)
+limiteN2000.shp <- st_read(limiteN2000)
 
-# Création d'un df par usage
-df.Ni = ExtractData1Use("nidification")
-df.Co = ExtractData1Use("couchade")
-df.Pa = ExtractData1Use("paturage")
-df.Rp = ExtractData1Use("randonnee_pedestre")
-df.Vt = ExtractData1Use("VTT")
-df.Lk = ExtractData1Use("parade")
+# Création d'un df par usage : utilisation fonction ExtractData1Use
+lapply(c("nidification",
+         "couchade",
+         "paturage",
+         "randonnee_pedestre",
+         "VTT",
+         "parade"),ExtractData1Use)
 
-write.csv(df.Ni, paste0(wd,"/output/niches/df_niche_Ni.csv"))
-write.csv(df.Co, paste0(wd,"/output/niches/df_niche_Co.csv"))
-write.csv(df.Pa, paste0(wd,"/output/niches/df_niche_Pa.csv"))
-write.csv(df.Rp, paste0(wd,"/output/niches/df_niche_Rp.csv"))
-write.csv(df.Vt, paste0(wd,"/output/niches/df_niche_Vt.csv"))
-write.csv(df.Lk, paste0(wd,"/output/niches/df_niche_Lk.csv"))
+# Exploitation des données : création modèle
+set.seed(1)
+lapply(liste.usages, CreateModelUsage)
 
+# raster_pred = rasterFromXYZ(data.frame(df.env$x, df.env$y, df.env$pred), crs=EPSG_2154)
+# # - raster accord entre obs et pred
+# somme_rast = raster_pred + raster_obs
+# raster_accord <- somme_rast ==2
+# # - raster prédit mais non obs
+# diff_rast = raster_pred - raster_obs
+# raster_predNobs <- diff_rast == 1
+# # - raster obs mais non prédit
+# diff_rast2 = raster_obs - raster_pred
+# raster_obsNpred <- diff_rast2 == 1
 
-data_glm = df.Ni
-names(data_glm)[1] = "usage"
+# library(mapview)
+# mapviewOptions(na.color = "transparent",
+#                basemaps="OpenStreetMap",
+#                viewer.suppress=TRUE,
+#                trim=TRUE)
+# view(raster_obs)
 
-library(tidyverse)
-
-data_glm %>% 
-  pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
-  ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
-  geom_boxplot()+ 
-  scale_colour_discrete(name = "Nidification", labels = c("Absence", "Présence"))
+# à mettre dans le rmd
+load(file = paste0(output_path,"/niches/",nom_court_usage,"/modele.rdata"))
+summary(model.glm.step) # display results
+load(file=paste0(output_path,"/niches/",nom_court_usage,"/CM.rdata"))
+CM
 
 
 # # Test de modèle sur l'usage Couchade (Co)
