@@ -2,7 +2,7 @@
 # Nom : Modélisation des usages
 # Auteure : Perle Charlot
 # Date de création : 09-09-2022
-# Dates de modification : 12-10-2022
+# Dates de modification : 19-10-2022
 
 ### Librairies -------------------------------------
 library(glmmfields)
@@ -19,74 +19,152 @@ library(ggplot2)
 # library(dplyr)
 library(tidyverse)
 # library(fasterize)
+library(FactoMineR)
+library(factoextra)
 
 ### Fonctions -------------------------------------
 
+# Fonction qui vérifie que le raster ait le bon CRS et extent, et le modifie si besoin
+AjustExtCRS <- function(path.raster.to.check, path.raster.ref=chemin_mnt){
+  
+  # # TEST
+  # path.raster.to.check = r_hiv[2]
+  # raster.ref = MNT
+  
+  raster.to.check <- raster(path.raster.to.check)
+  raster.ref <- raster(path.raster.ref)
+  
+  ext.to.check <- extent(raster.to.check)
+  bon.extent <- extent( raster.ref)
+  
+  sameCRS <- compareCRS(raster.to.check,EPSG_2154)
+  sameExtent <- (ext.to.check == bon.extent)
+  
+  if(any(!sameCRS,!sameExtent)) {
+    raster.to.check <- projectRaster(raster.to.check, raster.ref)
+    writeRaster(raster.to.check, path.raster.to.check, overwrite=TRUE)
+    cat("\nRaster ", names(raster.to.check)," a été modifié et sauvegarde.")
+  }
+  
+}
+
 # Fonction qui sort les valeurs des var env associées à un usage donné
-ExtractData1Use <- function(usage
-                            ,fenetre_temporelle = liste.mois
+ExtractData1Use <- function(usage,
+                            fenetre_temporelle = liste.mois,
+                            type_donnees # "brute", "ACP"
 ){
   # # TEST
   # usage = "couchade"
   # fenetre_temporelle = liste.mois
+  # type_donnees = "brute"
   
   DataUsageMois <- function(mois){
     # # TEST
     # mois = fenetre_temporelle[2]
     
-    raster.usage.mois.path = list.files(paste0(wd,"/output/par_periode/",mois),usage,full.names = T)
+    # Raster de l'usage considéré
+    raster.usage.mois.path = list.files(paste0(wd,"/output/par_periode/",mois),
+                                        usage,full.names = T)
     if(length(raster.usage.mois.path)!= 0){
-      raster.usage.mois = raster(raster.usage.mois.path)
-      # RAsters environnement
-      all.tif = list.files(paste0(gitCaractMilieu,"/output/ACP/"),pattern = ".tif",recursive = T,full.names = T)
-      all.tif = all.tif[grep(mois,all.tif)]
-      # Retirer dossiers : toutes, ACP_FAMD, CA/sans_ACP_clim
-      all.tif = all.tif[!grepl("toutes",all.tif)]
-      all.tif = all.tif[!grepl("ACP_FAMD",all.tif)]
-      all.tif = all.tif[!grepl("CA/sans_ACP_clim",all.tif)]
-      stack.env = stack(all.tif)
+      raster.usage.mois = terra::rast(raster.usage.mois.path)
+      
+      # Rasters environnement : sur le mois considéré
+      if(type_donnees == "ACP"){
+        all.tif = list.files(paste0(gitCaractMilieu,"/output/ACP/"), 
+                             pattern = ".tif",recursive = T,full.names = T)
+        all.tif = all.tif[grep(mois,all.tif)]
+        # Retirer dossiers : toutes, ACP_FAMD, CA/sans_ACP_clim
+        all.tif = all.tif[!grepl("toutes",all.tif)]
+        all.tif = all.tif[!grepl("ACP_FAMD",all.tif)]
+        all.tif = all.tif[!grepl("CA/sans_ACP_clim",all.tif)]
+        # Sauvegarder table des valeurs des rasters par mois
+        if(!dir.exists(paste0(input_path,"/vars_env/ACP/",mois))){
+          dir.create(paste0(input_path,"/vars_env/ACP/",mois),recursive=T)
+        }
+        DOS = paste0(input_path,"/vars_env/ACP/",mois)
+      } 
+      if(type_donnees == "brute"){
+        all.tif = list.files(paste0(gitCaractMilieu,"/output/stack_dim/"),
+                             pattern = ".tif",recursive = T,full.names = T)
+        all.tif = all.tif[grep(mois,all.tif)]
+        # Sauvegarder table des valeurs des rasters par mois
+        if(!dir.exists(paste0(input_path,"/vars_env/brute/",mois))){
+          dir.create(paste0(input_path,"/vars_env/brute/",mois),recursive=T)
+        }
+        DOS = paste0(input_path,"/vars_env/brute/",mois)
+      }
+      # Stacker les variables de l'environnement
+      stack.env2 = stack(all.tif)
+      stack.env = terra::rast(all.tif)
+      
+      # Correction noms des vars en brute
+      findCorrectName <- function(y){
+        index_noms_faux = grep(pattern = y , x = noms_faux)
+        if(length(index_noms_faux)!=0){
+          return(data.frame(old_name =noms_faux[index_noms_faux],new_name=y))
+        } else{return(c(old_name =NA,new_name=NA))}
+      }
+      if(type_donnees == "brute"){
+        noms_faux = names(stack.env)[!names(stack.env) %in% table_variables$Nom]
+        
+        table_correctName = do.call(rbind,lapply(table_variables$Nom, findCorrectName))
+        table_correctName = na.omit(table_correctName)
+        names(stack.env)[!names(stack.env) %in% table_variables$Nom] <- table_correctName$new_name
+      }
+      
+      FILS = list.files(DOS)
       
       # ! ne sert à rien de le recalculer à chaque fois si existe déjà
-      # Sauvegarder table des valeurs des rasters par mois
-      if(!dir.exists(paste0(input_path,"/vars_env/",mois))){
-        dir.create(paste0(input_path,"/vars_env/",mois))
-      }
-      if(length(list.files(paste0(input_path,"/vars_env/",mois))) == 0){
+      if(length(FILS) == 0){
         df.env = as.data.frame(as.data.table(stack.env[]))
-        df.env = cbind(coordinates(stack.env), df.env)
-        # Remove nom mois dans colonnes
-        to.modif = names(df.env)[grep(mois,names(df.env))]
-        new.names = unlist(lapply(to.modif, function(x) substring(x,1,nchar(x) - nchar(mois) - 1)))
-        names(df.env)[grep(mois,names(df.env))] = new.names
-        write_csv2(df.env, paste0(input_path,"/vars_env/",mois,"/dt_vars_FAMD.csv"))
-      } else{cat(paste0("\n Le tableau des variables FAMD du mois de ",mois," a déjà été calculé."))}
+        # Rendre noms variables propres
+        if(type_donnees == "ACP"){
+          # Remove nom mois dans colonnes
+          to.modif = names(df.env)[grep(mois,names(df.env))]
+          new.names = unlist(lapply(to.modif, function(x) substring(x,1,nchar(x) - nchar(mois) - 1)))
+          names(df.env)[grep(mois,names(df.env))] = new.names
+        }
+        df.env = cbind(coordinates(stack.env2), df.env)
+        write_csv2(df.env, paste0(DOS,"/dt_vars.csv"))
+      } else{cat(paste0("\n Le tableau des variables ",
+                        type_donnees," du mois de ",mois," a déjà été calculé."))}
       
       # Combiner env + usage
-      stack.env.usage = stack(raster.usage.mois, stack.env)
+      stack.env.usage = c(raster.usage.mois, stack.env)
+      # # Combiner env + usage
+      # stack.env.usage = stack(raster.usage.mois, stack.env)
       # enlève les NA des bords
       stack.env.usage <- raster::crop(stack.env.usage, limiteN2000.shp)
       # stack -> df
       df.env.usage = as.data.frame(as.data.table(stack.env.usage[]))
       df.env.usage = na.omit(df.env.usage)
-      # Remove nom mois dans colonnes
-      to.modif = names(df.env.usage)[grep(mois,names(df.env.usage))]
-      new.names = unlist(lapply(to.modif, function(x) substring(x,1,nchar(x) - nchar(mois) - 1)))
-      names(df.env.usage)[grep(mois,names(df.env.usage))] = new.names
+     
+      # Arranger les noms, again
+      if(type_donnees == "ACP"){
+        # Remove nom mois dans colonnes
+        to.modif = names(df.env.usage)[grep(mois,names(df.env.usage))]
+        new.names = unlist(lapply(to.modif, function(x) substring(x,1,nchar(x) - nchar(mois) - 1)))
+        names(df.env.usage)[grep(mois,names(df.env.usage))] = new.names
+      }
+      # TODO: ajouter les coordonnées x y ???
       return(df.env.usage)
-      
     } else{
       cat("\n L'usage",usage,"n'est pas présent au mois de",mois,".")
       return(NA)}
   }
+  
   df.e.u = do.call(rbind,lapply(fenetre_temporelle, DataUsageMois))
   # Remove NA (from absence months)
   df.e.u = na.omit(df.e.u)
-  #return(df.e.u)
-  write.csv(df.e.u, paste0(wd,"/output/niches/df_niche_",usage,".csv"))
+  
+  if(!dir.exists(paste0(wd,"/output/niches/",type_donnees,"/"))){
+    dir.create(paste0(wd,"/output/niches/",type_donnees,"/"),recursive=T)
+  }
+  write.csv(df.e.u, paste0(wd,"/output/niches/",type_donnees,"/df_niche_",usage,".csv"))
 }
 
 # Crée un ENM (pour 1 usage donné), puis prédit tous les mois
-CreateModelUsage <- function(nom_court_usage){
+CreateModelUsage <- function(nom_court_usage, type_donnees){
   
   # # TEST
   # nom_court_usage = "Ni"
@@ -194,6 +272,56 @@ CreateModelUsage <- function(nom_court_usage){
   lapply(liste.mois, predUsageMois)
 }
 
+
+for(i in periode){
+  
+
+  stack_dim <- stack(list.files(paste0(path_dos_stack,dimension,"/",i),".tif", 
+                                full.names = T))
+  
+  # Transformation en table
+  dt_stack <- as.data.frame(data.table(as.data.frame(stack_dim)))
+  dt_stack <- cbind(dt_stack,coordinates(stack_dim))
+  # Retirer les NA (quand calculé sur N2000 et pas emrpise carrée) : 211 200 pixels --> 50 320
+  dt_stack <- dt_stack[complete.cases(dt_stack),]     # 211 200 pixels --> 98 967
+  # Ré-écrire correctement le nom des variables (si jamais du superflu traine)
+  
+  # Si au moins un nom de variable de la stack n'est pas trouvé dans la liste des variables
+  noms_variables = names(dt_stack)[! names(dt_stack) %in% c("x","y")]
+  if(any(!noms_variables %in% table_variables$Nom)){
+    noms_bug = noms_variables[!noms_variables %in% table_variables$Nom]
+    cat(paste0("Bug(s) sur le(s) nom(s) : \n- ",paste(noms_bug, collapse ="\n- ")))
+    # A la mano
+    if(any(grepl("temps_acces", noms_bug))){
+      names(dt_stack)[grepl("temps_acces", names(dt_stack))] = "temps_acces"
+    }
+    if(any(grepl("abondance_feuillage", noms_bug))){
+      names(dt_stack)[grepl("abondance_feuillage", names(dt_stack))] = "abondance_feuillage"
+    }
+    if(any(grepl("NDVI", noms_bug))){
+      names(dt_stack)[grepl("NDVI", names(dt_stack))] = "NDVI"
+    }
+    if(any(grepl("P_ETP", noms_bug))){
+      names(dt_stack)[grepl("P_ETP", names(dt_stack))] = "P_ETP"
+    }
+    if(any(grepl("ht_physio_max", noms_bug))){
+      names(dt_stack)[grepl("ht_physio_max", names(dt_stack))] = "ht_physio_max"
+    }
+    if(any(grepl("diffT__dif_tmean", noms_bug))){
+      names(dt_stack)[grepl("diffT", names(dt_stack))] = "diffT"
+    }
+  }
+  
+  # Vérifier la nature des variables (si qualitative, coder en facteur)
+  extr_tb = table_variables[table_variables$Nom %in% names(dt_stack), ]
+  liste_nom_var_quali = extr_tb$Nom[which(extr_tb$Nature == "qualitative")]
+  dt_stack[liste_nom_var_quali] <- lapply(dt_stack[liste_nom_var_quali] , factor)
+  cat(paste0("\nPréparation table des variables pour dimension ",dimension,
+             " pour le mois de ",i," effectuée.\n"))
+  
+  makeFAMD(dt_stack,i, dimension, palette_couleur)
+}
+
 ### Constantes -------------------------------------
 
 # Espace de travail
@@ -215,6 +343,7 @@ gitCaractMilieu = "C:/Users/perle.charlot/Documents/PhD/DATA/R_git/CaractMilieu"
 
 #### Autre ####
 liste.mois = c("mai","juin","juillet","aout","septembre")
+df.mois = data.frame(nom_mois = liste.mois, numero_mois = c("05","06","07","08","09"))
 # Liste dimensions
 liste.dim =  c("CA","B","PV","CS","D","I")
 # Liste usages
@@ -222,15 +351,21 @@ liste.usages = c("Ni","Lk","Co","Pa","Rp","Vt")
 
 ### Programme -------------------------------------
 
-# Présence/absence usage ~ variables du milieu
-# Quelles variables du milieu prendre ? 
-# A - toutes (~ 40)
-# B - les axes des AFDM par dimension (~20)
+# Lignes à valider
+limiteN2000.shp <- st_read(limiteN2000)
+# Colorer les variables en fonction des dimensions
+corresp_col = data.frame(dim = c("CA","B","PV","CS","D","I"),
+                         colour_dim = c("dodgerblue","darkgoldenrod1","darkgreen",
+                                        "brown","blueviolet","darkgray"))
+dim_vars = data.frame(vars_noms= apply(expand.grid(paste0("axe",1:3,"_"), liste.dim), 1, paste, collapse=""),
+                      dim = unname(unlist(as.list(data.frame(t(replicate(3,liste.dim)))))))
+dim_col =merge(dim_vars, corresp_col, by='dim',all=T)
+
+path_table_variables <- paste0(gitCaractMilieu,"/input/liste_variables.csv")
+table_variables <- fread(path_table_variables, header=T)
 
 #### GLM : binomiale ####
-# Option B = axes des AFDM par dimension
-
-limiteN2000.shp <- st_read(limiteN2000)
+# axes des AFDM par dimension
 
 # Création d'un df par usage : utilisation fonction ExtractData1Use
 lapply(c("nidification",
@@ -238,7 +373,7 @@ lapply(c("nidification",
          "paturage",
          "randonnee_pedestre",
          "VTT",
-         "parade"),ExtractData1Use)
+         "parade"),function(x) ExtractData1Use(usage=x, type_donnees = "brute"))
 
 # Exploitation des données : création modèle
 set.seed(1)
@@ -349,7 +484,162 @@ CM
 # head(tidy(m_spatial, conf.int = TRUE, conf.method = "HPDinterval"))
 # 
 
-
-
 #### RF ####
+
+#### Visualisation espace ACP ####
+
+
+VizIndDim <- function(usage){
+  # TEST
+  mois = "juillet"
+  usage = "Ni"
+  
+  for(mois in liste.mois){
+    
+    data_mois <- fread(paste0(gitCaractMilieu,"/output/ACP/ACP_FAMD/",
+                              df.mois$numero_mois[which(df.mois$nom_mois == mois)],mois,
+                              "/tblFAMD_ACP_FAMD_",mois,".csv"),drop="V1")
+    tbl_data = data_mois[,1:17]
+    
+    pca1 <- PCA(tbl_data, graph = FALSE)
+    #PCA -> ggplot
+    # https://tem11010.github.io/Plotting-PCAs/
+    tbl_data$pc1 <- pca1$ind$coord[, 1]
+    tbl_data$pc2 <- pca1$ind$coord[, 2]  
+    pca.vars <- pca1$var$coord %>% data.frame
+    pca.vars$vars <- rownames(pca.vars)
+    
+    #https://stackoverflow.com/questions/51219267/pca-scaling-not-applied-to-individuals
+    # #https://rdrr.io/cran/factoextra/src/R/fviz_pca.R#sym-fviz_pca_biplot
+    # r_scale = (max(pca1$ind$coord) - min(pca1$ind$coord))/
+    #   (max(pca1$var$coord) - min(pca1$var$coord))
+    
+    N = nchar(mois) + 1
+    pca.vars$vars_noms = substr(pca.vars$vars,1, nchar(pca.vars$vars)-N)
+    
+    pca.vars.m <- melt(pca.vars, id.vars = "vars",warning =F)
+    circleFun <- function(center = c(0,0),diameter = 1, npoints = 100){
+      r = diameter / 2
+      tt <- seq(0,2*pi,length.out = npoints)
+      xx <- center[1] + r * cos(tt)
+      yy <- center[2] + r * sin(tt)
+      return(data.frame(x = xx, y = yy))
+    }
+    circ <- circleFun(c(0,0),2,npoints = 500)
+    
+    seuil = 0.2
+    pca.vars.2 = pca.vars %>%
+      filter(Dim.1 > seuil | Dim.1 < -seuil | Dim.2 > seuil | Dim.2 < -seuil) 
+    nb_var_drop = dim(pca.vars)[1] -dim(pca.vars.2)[1]
+    cat(paste0(nb_var_drop," variables ont été retirées pour faciliter la visualisation."))
+    
+    # Valeurs des usages
+    # USAGE
+    liste_rast = list.files(paste0(output_path,"/niches/",usage,"/predictions/"),".tif",
+                            full.names = T)
+    if(length(liste_rast[grep(mois, liste_rast)])==0){
+      cat("\nPas d'usage ",usage,"au mois de ",mois,".")
+    }else{
+    r = stack(liste_rast[grep(mois, liste_rast)])
+    names(r)=c("observation", "probabilite_prediction")
+    obs_sp = rasterToPolygons(r$observation,fun=function(x)x==1, dissolve=TRUE)
+    # AXES ACP
+    r.AFDM <- stack(list.files(paste0(gitCaractMilieu,"/output/ACP/ACP_FAMD/",
+                                      df.mois$numero_mois[which(df.mois$nom_mois == mois)],mois,
+                                      "/"),".tif", full.names = T))
+    # EXTRACTION VALEURS
+    library(exactextractr)
+    values_usages <- as.data.frame(exact_extract(r.AFDM, obs_sp, include_xy=T))
+    head(values_usages)
+    values_usages$axe1_ACP_FAMD = values_usages[,1]
+    values_usages$axe2_ACP_FAMD = values_usages[,2]
+    
+    pca.vars.2 = merge(pca.vars.2, dim_col, by="vars_noms")
+    # Densité individus + flèches variables, en couleur de dimension
+    P3 = ggplot() +
+      geom_path(data = circ,aes(x,y), lty = 2, color = "grey", alpha = 0.7) +
+      geom_hline(yintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
+      geom_vline(xintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
+      geom_hex(data=values_usages, aes(x="axe1_ACP_FAMD", 
+                                       y="axe2_ACP_FAMD")) +
+      geom_segment(data = pca.vars.2, aes(x = 0, xend = Dim.1*4, y = 0, yend = Dim.2*4),
+                   arrow = arrow(length = unit(0.025, "npc"), type = "open"), 
+                   lwd = 0.6, colour='black') + 
+      geom_text(data = pca.vars.2,size = 10,
+                aes(x = Dim.1*3.5, y =  Dim.2*3.5,
+                    label = vars_noms),colour=pca.vars.2$colour_dim,
+                check_overlap = F) +
+      labs(x="ACP 1",y="ACP2", fill="Densité\n(en pixels)",
+           title= paste0("Usage ",usage," - ",mois))+
+      coord_equal() +
+      scale_fill_continuous(type = "viridis",direction=-1)+
+      theme_bw() +
+      theme(panel.grid = element_blank(), text = element_text(size=15),
+            panel.border = element_rect(fill= "transparent"))
+    
+    png(file=paste0(output_path,"/niches/",usage,"/densite_dim_",mois,".png"), 
+        width=1400, height=800)
+    print(P3)
+    dev.off()
+    
+    # Graph du cercle de corrélation avec toutes les variables
+    pca.vars
+    pca.vars = merge(pca.vars, dim_col, by="vars_noms")
+    P1 = ggplot() +
+      geom_path(data = circ,aes(x,y), lty = 2, color = "grey", alpha = 0.7) +
+      geom_hline(yintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
+      geom_vline(xintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
+      geom_segment(data = pca.vars, aes(x = 0, xend = Dim.1, y = 0, yend = Dim.2),
+                   arrow = arrow(length = unit(0.025, "npc"), type = "open"), 
+                   lwd = 0.5) + 
+      geom_text(data = pca.vars,size=10,
+                aes(x = Dim.1*1.15, y =  Dim.2*1.15,
+                    label = vars_noms),colour=pca.vars$colour_dim,
+                check_overlap = F) +
+      labs(x="ACP 1",y="ACP2", title= mois)+
+      coord_equal() +
+      theme_minimal() +
+      theme(panel.grid = element_blank(), 
+            text = element_text(size=15),
+            panel.border = element_rect(fill= "transparent"))
+    
+    png(file=paste0(gitCaractMilieu,"/output/ACP/ACP_FAMD/",
+                    df.mois$numero_mois[which(df.mois$nom_mois == mois)],mois,
+                    "/plot_rmd/cercle_correlation_",mois,".png"), 
+        width=1400, height=800)
+    print(P1)
+    dev.off()
+    
+    # Graph du cercle de corrélation avec les variables (> seuil)
+    P2 = ggplot() +
+      geom_path(data = circ,aes(x,y), lty = 2, color = "grey", alpha = 0.7) +
+      geom_hline(yintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
+      geom_vline(xintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
+      geom_segment(data = pca.vars.2, aes(x = 0, xend = Dim.1, y = 0, yend = Dim.2),
+                   arrow = arrow(length = unit(0.025, "npc"), type = "open"), 
+                   lwd = 0.5) + 
+      geom_text(data = pca.vars.2,size=10,
+                aes(x = Dim.1*1.15, y =  Dim.2*1.15,
+                    label = vars_noms),colour=pca.vars.2$colour_dim,
+                check_overlap = F) +
+      labs(x="ACP 1",y="ACP2", title= mois)+
+      coord_equal() +
+      theme_minimal() +
+      theme(panel.grid = element_blank(), text = element_text(size=15),
+            panel.border = element_rect(fill= "transparent"))
+    
+    png(file=paste0(gitCaractMilieu,"/output/ACP/ACP_FAMD/",
+                    df.mois$numero_mois[which(df.mois$nom_mois == mois)],mois,
+                    "/plot_rmd/cercle_correlation_seuil_",mois,".png"), 
+        width=1400, height=800)
+    print(P2)
+    dev.off()}
+  }
+}
+
+VizIndDim("Ni")
+
+
+
+
 
