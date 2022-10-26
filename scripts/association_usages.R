@@ -2,7 +2,7 @@
 # Nom : Interactions spatiales entre usages
 # Auteure : Perle Charlot
 # Date de création : 05-07-2022
-# Dates de modification : 05-08-2022
+# Dates de modification : 25-10-2022
 
 ### Librairies -------------------------------------
 
@@ -70,6 +70,25 @@ CarteMultiUsages <- function(mois){
   usages_masked <- raster::mask(usages, limiteN2000)
 
   return(usages_masked)
+}
+
+# Fonction qui enregistre un csv décrivant les coordonnées x y, les valeurs d'usages
+# (1/0 si présence absence ou probabilité si modèle) et les valeurs de somme d'usages
+# ou du produits d'usages (utile quand proba)
+IdOverlayAr <- function(liste_usages, mois, action){
+  # # TEST
+  # liste_usages = c("nidification","paturage","randonnee_pedestre")
+  # mois = "juillet" #nom du mois en entier et en minuscule
+  # action = "sum" # sum (pour somme des usages) or prod (pour produit des usages)
+  
+  stack_usages = stack(paste0(output_path,"par_periode/",mois,"/",liste_usages,".tif"))
+  if(action == "sum"){stack_usages$overlay = sum(stack_usages)}
+  if(action == "prod"){  stack_usages$overlay = prod(stack_usages)}
+  
+  dt_stack_usages = cbind(coordinates(stack_usages),as.data.table(as.data.frame(stack_usages)))
+  # table(dt_stack_usages$overlay) # 474 pixels with those 3 uses
+  write.csv(dt_stack_usages, 
+            paste0(output_path,"multiusage/overlay_",mois,"_",paste0(liste_usages,collapse="_"),".csv"))
 }
 
 ### Constantes -------------------------------------
@@ -160,6 +179,11 @@ cor.test(dfUsages_06$paturage, dfUsages_06$nidification_TLY_juin, method = "pear
 
 #### Superposition des usages ####
 
+IdOverlay(liste_usages= c("nidification","paturage","randonnee_pedestre"),
+          mois="juillet",
+          action="sum")
+
+# Travail barbare sur le multiusage
 liste.rast.usage = lapply(liste.mois, CarteMultiUsages)
 liste.rast.multiusage = lapply(liste.rast.usage, function(r)sum(r))
 rast.multiusage = stack(liste.rast.multiusage)
