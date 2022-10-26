@@ -2,7 +2,7 @@
 # Nom : Modélisation des usages
 # Auteure : Perle Charlot
 # Date de création : 09-09-2022
-# Dates de modification : 21-10-2022
+# Dates de modification : 26-10-2022
 
 ### Librairies -------------------------------------
 library(glmmfields)
@@ -23,7 +23,47 @@ library(FactoMineR)
 library(factoextra)
 library(ggtext)
 library(glue)
+library(exactextractr)
 ### Fonctions -------------------------------------
+
+# Fonction qui encode des colonnes d'un df en factoriel, si leur nature
+# est notée "qualitative" dans une autre tbale de référence
+RecodeFacto <- function(tableau_donnees_a_recoder, tableau_nature_donnees){
+  # # TEST
+  # tableau_donnees_a_recoder = tbl_data
+  # tableau_nature_donnees = col_vars_formate # Avec 2 colonnes "ID" et "nature"
+  
+  tableau_donnees_a_recoder = as.data.frame(tableau_donnees_a_recoder)
+  
+  vars_quali_all = tableau_nature_donnees$ID[tableau_nature_donnees$nature == "qualitative"] 
+  ind_vars_quali_tbl = which(names(tableau_donnees_a_recoder) %in% vars_quali_all)
+  if(length(ind_vars_quali_tbl) == 0){
+    return(tableau_donnees_a_recoder)
+  }else{
+    ind_vars_quanti_tbl = which(!names(tableau_donnees_a_recoder) %in% vars_quali_all)
+    
+    vars_quali_fact = as.data.frame(lapply(ind_vars_quali_tbl, 
+                                           function(x) as.factor(tableau_donnees_a_recoder[,x])))
+    names(vars_quali_fact) = names(tableau_donnees_a_recoder)[ind_vars_quali_tbl]
+    
+    tbl_quanti = data.frame(tableau_donnees_a_recoder[,ind_vars_quanti_tbl])
+    names(tbl_quanti) = names(tableau_donnees_a_recoder)[ind_vars_quanti_tbl]
+    
+    tableau_donnees_recoded = cbind(vars_quali_fact, 
+                                    tbl_quanti)
+
+    return(tableau_donnees_recoded)
+  }
+}
+
+# Fonction pour tracer cercle corrélation
+circleFun <- function(center = c(0,0),diameter = 1, npoints = 100){
+  r = diameter / 2
+  tt <- seq(0,2*pi,length.out = npoints)
+  xx <- center[1] + r * cos(tt)
+  yy <- center[2] + r * sin(tt)
+  return(data.frame(x = xx, y = yy))
+}
 
 # Fonction qui vérifie que le raster ait le bon CRS et extent, et le modifie si besoin
 AjustExtCRS <- function(path.raster.to.check, path.raster.ref=chemin_mnt){
@@ -168,9 +208,9 @@ ExtractData1Use <- function(usage,
 # Crée un ENM (pour 1 usage donné), puis prédit tous les mois
 CreateModelUsage <- function(nom_court_usage, type_donnees){
   
-  # # TEST
-  # nom_court_usage = "Ni"
-  # type_donnees = "brute" # "ACP"
+  # TEST
+  nom_court_usage = "Ni"
+  type_donnees = "brute" # "ACP"
   
   
   if(!dir.exists(paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage))){
@@ -233,18 +273,35 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
       scale_colour_discrete(name = nom_beau, labels = c("Absence", "Présence"))+
       theme(text = element_text(size=14))
   }
-
   # Sauvegarde
   png(file=paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage,"/viz_distrib_famd.png"), 
       width=1400, height=800)
   print(plot)
   dev.off()
   
+  
+  # TODO : incorporer workflow BIOMOD2
+  # - construire les modèles avec GLM et RF
+  # - ensemble modeling : comparer chaque modèle + regroupement modèles
+  # - prédictions : prédire avec le meilleur modèle (seul ou regroupement)
+  
   # Modèle
   sample <- sample(c(TRUE, FALSE), nrow(data_glm), replace=TRUE, prob=c(0.7,0.3))
   train <- data_glm[sample, ]
   test <- data_glm[!sample, ] 
-  model.glm <- glm(usage ~ ., family=binomial, data=train)
+  
+  ### GLM ####
+  
+  # Weight absence obs (to give the same weight
+  # to all absence and all presence observations)
+  n_abs <- sum(train$usage == 0)
+  n_pre <- sum(train$usage == 1)
+  # n_abs+ n_pre == dim(train)[1]
+  WEIGHT <-  n_pre / n_abs
+  w.vect <- ifelse(train$usage == 0,WEIGHT,1)
+  # Fit
+  model.glm <- glm(usage ~ ., family=binomial, data=train, 
+                   weights = w.vect)
   model.glm.step <- stepAIC(model.glm)
   # Enregistrer le modèle pour pouvoir ensuite echo = F
   save(model.glm.step, file = paste0(output_path,"/niches/",type_donnees,
@@ -281,6 +338,18 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
   CM = confusionMatrix(test$pred_resp, test$usage)
   save(CM, file=paste0(output_path,"/niches/",type_donnees,
                        "/",nom_court_usage,"/CM.rdata"))
+  
+  ### RF ####
+  library(randomForest)
+  
+  model.rf <- randomForest(usage ~ .,data=train,weights = w.vect)
+
+  summary(model.rf)
+  
+
+  # TODO : explore and use BIOMOD package
+  # start with GLM and RF
+  library()
   
   # Prédiction spatialisée
   predUsageMois <- function(mois){
@@ -326,6 +395,325 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
   lapply(liste.mois, predUsageMois)
 }
 
+# Fonction qui retourne des graphiques présentant la distribution 
+# des usages (en densité de présence ou proba) dans un espace écologique
+# (soit sur une AFDM d'une dimension, soit sur ACP de toutes les dimensions),
+# pour une période donnée
+EspEco <- function(usage, type_donnees, liste_mois, espace){
+  # # TEST
+  # liste_mois = "juillet" # Mois considéré (ou autre fenêtre temporelle)
+  # usage =c("Rp") # Nom court de l'usage considéré, ex "Ni"
+  # type_donnees = "brute" # "brute" ou "ACP", relatif aux variables utilisées
+  # #pour construire les niches d'usages
+  # espace = 'dimension' # "global" ou "dimension", projection dans un espace global ou par dimension
+  
+  # S'assurer ordre alphabétique (important pour la suite)
+  usage = usage[order(usage)]
+  
+  if(!dir.exists(paste0(output_path,"/niches/",type_donnees,"/",paste0(usage,collapse="_"),"/esp_eco/"))){
+    dir.create(paste0(output_path,"/niches/",type_donnees,"/",paste0(usage,collapse="_"),"/esp_eco/"), recursive = T)
+  }
+  
+  outpath2 = paste0(output_path,"/niches/",type_donnees,"/",paste0(usage,collapse="_"),"/esp_eco/")
+  stock_outpath2 = outpath2
+  
+  cat("\nUsage ",usage," :")
+  
+  PlotEspEco <- function(tableau_donnees_usages,
+                         tableau_ACP,type){
+    # # TEST
+    # tableau_donnees_usages = values_usages
+    # tableau_ACP = pca.vars.quanti
+    # type = "quanti" # "quanti" "quali" "all"
+    
+    
+    tableau_donnees_usages = na.omit(tableau_donnees_usages)
+    
+    tabeau_donnees_cercle <- circleFun(c(0,0),2,npoints = 500)
+    
+    if(type=="all"){
+      tableau_ACP = tableau_ACP %>% select(-vars)
+      names(tableau_ACP)[grep("vars_noms",names(tableau_ACP))] = "vars"
+      tableau_for_plot = merge(tableau_ACP, dim_col, by.x="vars", by.y="vars_noms")
+    }
+    if(type=="quali"){
+      tableau_ACP = tableau_ACP %>% select(-vars)
+      names(tableau_ACP)[grep("vars_noms",names(tableau_ACP))] = "vars"
+      tableau_for_plot = tableau_ACP
+      col_of_dim = unique(col_vars$colour_dim[col_vars$dim == dim])
+      
+      tableau_for_plot$colour_dim = rep(col_of_dim,dim(tableau_for_plot)[1])
+    }
+    if(type=="quanti"){
+      tableau_for_plot = merge(col_vars, tableau_ACP, by.x="Nom", by.y="vars_noms")
+    }
+    
+    # Seuil pour garder variables sur graph (pour visibilité)
+    seuil = 0.2
+    tableau_for_plot.filtred = tableau_for_plot %>%
+      filter(Dim.1 > seuil | Dim.1 < -seuil | Dim.2 > seuil | Dim.2 < -seuil)
+    
+    nb_var_drop = dim(tableau_for_plot)[1] -dim(tableau_for_plot.filtred)[1]
+    cat(paste0("\n",nb_var_drop," variables ont été retirées pour faciliter la visualisation."))
+    
+    # Calculs coefficients pour afficher sur même plan indiv et variables
+    Mu = max(max(tableau_donnees_usages$axe1), max(tableau_donnees_usages$axe2))
+    Mv = max(max(tableau_for_plot.filtred$Dim.1),max(tableau_for_plot.filtred$Dim.2))
+    RATIO = ifelse(Mu>Mv,round(Mu/Mv,2),1)
+    RA2 = 0.8 * RATIO
+    
+    P3 = ggplot() +
+      geom_path(data = tabeau_donnees_cercle,aes(x,y), 
+                lty = 2, color = "grey", alpha = 0.7) +
+      geom_hline(yintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
+      geom_vline(xintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
+      geom_hex(data=tableau_donnees_usages,
+               aes(x=axe1, 
+                   y=axe2)) +
+      geom_segment(data = tableau_for_plot.filtred, 
+                   aes(x = 0, xend = Dim.1*RATIO, y = 0, yend = Dim.2*RATIO),
+                   arrow = arrow(length = unit(0.025, "npc"), type = "open"), 
+                   lwd = 0.6, colour="black") + 
+      geom_text(data = tableau_for_plot.filtred, size = 10,
+                aes(x = Dim.1*RA2, y =  Dim.2*RA2,
+                    label = vars), 
+                colour= tableau_for_plot.filtred$colour_dim,
+                check_overlap = T) +
+      labs(x="ACP 1",y="ACP2", fill="Densité\n(en pixels)",
+           title= paste0("Usage ",paste0(usage,collapse="_")," - ",mois))+
+      coord_equal() +
+      scale_fill_continuous(type = "viridis",direction=-1)+
+      theme_bw() +
+      theme(panel.grid = element_blank(), text = element_text(size=15),
+            panel.border = element_rect(fill= "transparent"))
+    
+    png(file=paste0(outpath2, "/densite_dim_",dim,"_",type,"_",
+                    mois,".png"), 
+        width=1400, height=800)
+    print(P3)
+    dev.off()
+    
+    # Graph du cercle de corrélation avec toutes les variables
+    P1 = ggplot() +
+      geom_path(data = tabeau_donnees_cercle,aes(x,y), 
+                lty = 2, color = "grey", alpha = 0.7) +
+      geom_hline(yintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
+      geom_vline(xintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
+      geom_segment(data = tableau_for_plot, 
+                   aes(x = 0, xend = Dim.1*RATIO, y = 0, yend = Dim.2*RATIO),
+                   arrow = arrow(length = unit(0.025, "npc"), type = "open"), 
+                   lwd = 0.6) + 
+      geom_text(data = tableau_for_plot,size=10,
+                aes(x = Dim.1*RA2, y =  Dim.2*RA2,
+                    label = vars),
+                colour=tableau_for_plot$colour_dim,
+                check_overlap = F) +
+      labs(x="ACP 1",y="ACP2", title= mois)+
+      coord_equal() +
+      theme_minimal() +
+      theme(panel.grid = element_blank(), 
+            text = element_text(size=15),
+            panel.border = element_rect(fill= "transparent"))
+    
+    png(file=paste0(outpath2, "/cercle_correlation_",dim,"_",type,"_",
+                    mois,".png"), 
+        width=1400, height=800)
+    print(P1)
+    dev.off()
+    
+    if(nb_var_drop != 0){
+      # Graph du cercle de corrélation avec les variables (> seuil)
+      P2 = ggplot() +
+        geom_path(data = tabeau_donnees_cercle,aes(x,y), 
+                  lty = 2, color = "grey", alpha = 0.7) +
+        geom_hline(yintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
+        geom_vline(xintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
+        geom_segment(data = tableau_for_plot.filtred, 
+                     aes(x = 0, xend = Dim.1*RATIO, y = 0, yend = Dim.2*RATIO),
+                     arrow = arrow(length = unit(0.025, "npc"), type = "open"), 
+                     lwd = 0.6) + 
+        geom_text(data = tableau_for_plot.filtred,size=10,
+                  aes(x = Dim.1*RA2, y =  Dim.2*RA2,
+                      label = vars),
+                  colour=tableau_for_plot.filtred$colour_dim,
+                  check_overlap = F) +
+        labs(x="ACP 1",y="ACP2", title= mois)+
+        coord_equal() +
+        theme_minimal() +
+        theme(panel.grid = element_blank(), 
+              text = element_text(size=15),
+              panel.border = element_rect(fill= "transparent"))
+      
+      png(file=paste0(outpath2, "/cercle_correlation_seuil_",dim,"_",type,"_",
+                      mois,".png"), 
+          width=1400, height=800)
+      print(P2)
+      dev.off()}
+  }
+  
+  for(mois in liste_mois){
+    
+    cat("\nMois de ",mois," en cours.")
+    
+    if(espace == "global"){
+      ### Lecture des valeurs des variables (= axes AFDM ou variables initiales)
+      data_mois <- fread(paste0(gitCaractMilieu,"/output/ACP/ACP_FAMD/",
+                                df.mois$numero_mois[which(df.mois$nom_mois == mois)],mois,
+                                "/tblFAMD_ACP_FAMD_",mois,".csv"),drop="V1")
+      tbl_data = data_mois[,1:17]
+      ### Calcul d'un analyse factorielle sur ces variables
+      ana.fact <- PCA(tbl_data, graph = FALSE)
+      ### Mise en forme dt de l'analyse factorielle
+      # https://tem11010.github.io/Plotting-PCAs/
+      tbl_data$pc1 <- ana.fact$ind$coord[, 1]
+      tbl_data$pc2 <- ana.fact$ind$coord[, 2]  
+      pca.vars <- ana.fact$var$coord %>% data.frame
+      pca.vars$vars <- rownames(pca.vars)
+      # https://stackoverflow.com/questions/51219267/pca-scaling-not-applied-to-individuals
+      # https://rdrr.io/cran/factoextra/src/R/fviz_pca.R#sym-fviz_pca_biplot
+      N = nchar(mois) + 1
+      pca.vars$vars_noms = substr(pca.vars$vars,1, nchar(pca.vars$vars)-N)
+      
+      #pca.vars.m <- melt(pca.vars, id.vars = "vars",warning =F)
+      
+      ### Lecture des usages (probabilité ou présence/absence)
+      liste_rast = list.files(paste0(output_path,"/niches/",type_donnees,"/",
+                                     usage,"/predictions/"),".tif$",
+                              full.names = T)
+      if(length(liste_rast[grep(mois, liste_rast)])==0){
+        cat("\nPas d'usage ",usage,"au mois de ",mois,".")
+      }else{
+        r = stack(liste_rast[grep(mois, liste_rast)])
+        names(r)=c("observation", "probabilite_prediction")
+        obs_sp = rasterToPolygons(r$observation,fun=function(x)x==1, dissolve=TRUE)
+        # AXES ACP
+        r.vars <- stack(list.files(paste0(gitCaractMilieu,"/output/ACP/ACP_FAMD/",
+                                          df.mois$numero_mois[which(df.mois$nom_mois == mois)],mois,
+                                          "/"),".tif", full.names = T))
+        # EXTRACTION VALEURS
+        values_usages <- as.data.frame(exact_extract(r.vars, obs_sp, include_xy=T))
+        values_usages$axe1 = values_usages[,1]
+        values_usages$axe2 = values_usages[,2]
+        
+        # pca.vars.2 = merge(pca.vars.2, dim_col, by="vars_noms")
+        
+        ### Construction des figures
+        dim= 'AFDM'
+        
+        PlotEspEco(values_usages,pca.vars, "all")
+        
+      }
+    }
+    
+    if(espace == "dimension"){
+      ### Lecture des valeurs des variables (= axes AFDM ou variables initiales)
+      pot_fil = list.files(paste0(gitCaractMilieu, "/output/ACP/"),mois,recursive = T, full.names = T)
+      pot_fil = pot_fil[grep("tblFAMD_",pot_fil)]
+      # à virer : toutes ACP_FAMD TEST/CA_avec_ACP_clim
+      path_files = pot_fil[!grepl("TEST|ACP_FAMD|toutes",pot_fil)]
+      # Liste de df, 1 par dimension
+      liste_tbl_data <- lapply(path_files, function(x) fread(x,drop="V1"))
+      ### Calcul d'un analyse factorielle sur ces variables
+      for(i in 1:length(liste_tbl_data)){
+        
+        dim = liste.dim[order(liste.dim)][i]
+        cat("\n Dimension",dim ,"en cours.")
+        
+        outpath2 = paste0(stock_outpath2,dim)
+        
+        if(!dir.exists(outpath2)){
+          dir.create(outpath2, recursive = T)
+        }
+        
+        data_mois = liste_tbl_data[[i]]
+        ind_x = grep("^x$",names(data_mois))
+        tbl_data = data_mois[,1:(ind_x-1)]
+        
+        # Recoder vars factorielles
+        tbl_data = RecodeFacto(tableau_donnees_a_recoder = tbl_data,
+                               tableau_nature_donnees=col_vars_formate)
+        t = try(FAMD(tbl_data, graph = FALSE))
+        if(inherits(t, "try-error")) {
+          # PCA si seulement quanti
+          ana.fact <- PCA(tbl_data , graph = FALSE)
+          
+          pca.vars <- ana.fact$var$coord %>% data.frame
+          pca.vars$vars <- rownames(pca.vars)
+          pca.vars$vars_noms = pca.vars$vars
+        } else{
+          #FAMD si miste quali/quanti
+          ana.fact <- FAMD(tbl_data , graph = FALSE)
+          
+          pca.vars.quanti <- ana.fact$quanti.var$coord %>% data.frame
+          pca.vars.quanti$vars <- rownames(pca.vars.quanti)
+          pca.vars.quanti$vars_noms = pca.vars.quanti$vars
+          
+          pca.vars.quali <- ana.fact$quali.var$coord %>% data.frame
+          # Mais quelle bidouille de l'enfer pour récupérer les noms
+          # des variables quaitatives dans l'AFDM .....
+          Y = data.frame(ana.fact$call$quali.sup$quali.sup)
+          vars_nom = c()
+          for(j in 1:dim(Y)[2]){
+            vars_nom = c(vars_nom,paste0(names(Y)[j],levels(Y[,j])))
+          }
+          pca.vars.quali$vars <- vars_nom
+          pca.vars.quali$vars_noms = pca.vars.quali$vars
+        }
+        
+        ### Mise en forme dt de l'analyse factorielle  
+        tbl_data$pc1 <- ana.fact$ind$coord[, 1]
+        tbl_data$pc2 <- ana.fact$ind$coord[, 2]
+        
+        ### Lecture des usages (probabilité ou présence/absence)
+        liste_rast = list.files(paste0(output_path,"/niches/",type_donnees,"/",
+                                       usage,"/predictions/"),".tif$",
+                                full.names = T)
+        
+        if(length(liste_rast[grep(mois, liste_rast)])==0){
+          cat("\nPas d'usage ",usage,"au mois de ",mois,".")
+        }else{
+          r = stack(liste_rast[grep(mois, liste_rast)])
+          names(r) = unlist(lapply(usage, function(x) paste0(x,c("_observation", "_probabilite_prediction"))))
+          
+          # Calcul espace éco en prédit et en obs
+          r_obs <- raster::subset(r, grep('observation', names(r)))
+          r_pred <- raster::subset(r, grep('prediction', names(r)))
+          
+          # si travail sur un seul usage, ne sert à rien mais n'affecte pas
+          r_obs <- sum(r_obs)
+          names(r_obs) = "observation"
+          # # a voir comment on traite l'overlay de proba
+          # r_pred <- prod(r_pred)
+          
+          # Checker si multiusage ou pas
+          N = ifelse(length(usage)>1,length(usage),1)
+          obs_sp = rasterToPolygons(r_obs,fun=function(x)x==N, dissolve=TRUE)
+          
+          # AXES des analyses factorielles (ACP ou AFDM)
+          A = list.files(paste0(gitCaractMilieu,"/output/ACP/",dim,"/",
+                                paste0(df.mois$numero_mois[which(df.mois$nom_mois == mois)],mois),"/"),
+                         ".tif$", full.names = T)
+          A = A[grepl("axe",A)]
+          r.vars <- stack(A)
+          # Valeurs des obs/pred dans les axes factoriels
+          values_usages <- as.data.frame(exact_extract(r.vars, obs_sp, include_xy=T))
+          
+          values_usages$axe1 = values_usages[,1]
+          values_usages$axe2 = values_usages[,2]
+          ### Construction des figures
+          
+          if(inherits(t, "try-error")) {
+            PlotEspEco(values_usages,pca.vars,"quanti")
+          } else  {          
+            PlotEspEco(values_usages,pca.vars.quanti,"quanti")
+            PlotEspEco(values_usages,pca.vars.quali,"quali")
+          }
+        }
+      }
+    }
+  }
+}
+
 ### Constantes -------------------------------------
 
 # Espace de travail
@@ -366,10 +754,12 @@ dim_vars = data.frame(vars_noms= apply(expand.grid(paste0("axe",1:3,"_"), liste.
                       dim = unname(unlist(as.list(data.frame(t(replicate(3,liste.dim)))))))
 dim_col = merge(dim_vars, corresp_col, by='dim',all=T)
 
-
 table_variables <- fread(path_table_variables, header=T)
-
 col_vars <- merge(corresp_col, table_variables, by.x="dim",by.y="Dimension")
+# formatage pour que cette table soit prise dans fonction RecodeFacto()
+col_vars_formate =  col_vars %>%  
+  dplyr::select(Nom,Nature) %>%
+  transmute(ID=Nom, nature=Nature)
 
 #### GLM : binomiale ####
 # axes des AFDM par dimension
@@ -382,13 +772,10 @@ lapply(c("nidification",
          "VTT",
          "parade"),function(x) ExtractData1Use(usage=x, type_donnees = "brute"))
 
-# TODO : enlever ACP1_clim et ACP2_clim qui ne doivent pas être dans les vars
-
 # Exploitation des données : création modèle
 set.seed(1)
 lapply(liste.usages, function(x) CreateModelUsage(nom_court_usage=x,type_donnees = "brute"))
 
-# TODO : modif fct CreateModelUsage pour considérer vars brute
 
 # raster_pred = rasterFromXYZ(data.frame(df.env$x, df.env$y, df.env$pred), crs=EPSG_2154)
 # # - raster accord entre obs et pred
@@ -407,63 +794,6 @@ lapply(liste.usages, function(x) CreateModelUsage(nom_court_usage=x,type_donnees
 #                viewer.suppress=TRUE,
 #                trim=TRUE)
 # view(raster_obs)
-
-# à mettre dans le rmd
-load(file = paste0(output_path,"/niches/",nom_court_usage,"/modele.rdata"))
-summary(model.glm.step) # display results
-load(file=paste0(output_path,"/niches/",nom_court_usage,"/CM.rdata"))
-CM
-
-
-# # Test de modèle sur l'usage Couchade (Co)
-# data_glm = df.Ni
-# names(data_glm)[1] = "usage"
-
-# #make this example reproducible
-# set.seed(1)
-# #Use 70% of dataset as training set and remaining 30% as testing set
-# sample <- sample(c(TRUE, FALSE), nrow(data_glm), replace=TRUE, prob=c(0.7,0.3))
-# train <- data_glm[sample, ]
-# test <- data_glm[!sample, ] 
-# # Fit modèle
-# model.glm <- glm(usage ~ .,
-#     family=binomial, 
-#     data=train)
-# summary(model.glm) # display results
-# # Sélection des variables
-# model.glm.step <- stepAIC(model.glm)
-# # glm.Co.step$anova
-# # summary(glm.Co.step)
-# #confint(glm.Co.step) # 95% CI for the coefficients
-# # Odds ratio
-# # exp(coef(glm.Co.step)) # exponentiated coefficients
-# # exp(confint(glm.Co)) # 95% CI for exponentiated coefficients
-# # pred = predict(glm.Co.step, type="response") # predicted values
-# # residuals(glm.Co.step, type="deviance") # residuals 
-# 
-# # #null.model <- glm(Co ~ 1, family = binomial,data=data_glm)
-# # pseudoR2 <- (glm.Co.step$null.deviance - glm.Co.step$deviance)/glm.Co.step$null.deviance
-# # pseudoR2
-# 
-# ## S3 method for class 'glm'
-# library(DescTools)
-# BrierScore(model.glm.step)
-# 
-# # Etape AUC/ROC tout pour trouver le seuil de proba où ça bascule en présence
-# #https://stats.stackexchange.com/questions/172945/rmse-root-mean-squared-error-for-logistic-models
-# 
-# library(pROC)
-# test$pred_prob <- predict(model.glm.step, test, type="response")
-# test_roc = roc(test$usage ~ test$pred_prob, plot = TRUE, print.auc = TRUE)
-# 
-# # exp(coef(glm.Co.step))
-# 
-# test$pred_resp <- ifelse(test$pred_prob > 0.50, 1, 0)
-# 
-# test$usage = as.factor(test$usage)
-# test$pred_resp = as.factor(test$pred_resp)
-# 
-# confusionMatrix(test$pred_resp, test$usage)
 
 
 #### GLM spatial #####
@@ -499,158 +829,26 @@ CM
 
 #### Visualisation espace ACP ####
 
+# Tests de la fonction :
+ # - pour 1 usage, pour un mois --> OK
+EspEco(usage="Rp",type_donnees = "brute",liste_mois="juillet",espace="global")
+ # - pour 1 usage, sur une liste de mois-->OK
+EspEco(usage="Rp",type_donnees = "brute",liste_mois=liste.mois,espace="global")
+ # - pour tous les usages, sur une liste de mois --> OK
+lapply(liste.usages, function(x) EspEco(usage = x, 
+                                        liste_mois = liste.mois,
+                                           type_donnees = "brute",
+                                           espace="global"))
+ # - pour un multi-usage, sur un mois --> OK
+EspEco(usage=c("Pa","Vt","Ni"),type_donnees = "brute",liste_mois="juillet",espace="dimension")
 
-VizIndDim <- function(usage){
-  # TEST
-  mois = "juillet"
-  usage = "Ni"
-  
-  for(mois in liste.mois){
-    
-    data_mois <- fread(paste0(gitCaractMilieu,"/output/ACP/ACP_FAMD/",
-                              df.mois$numero_mois[which(df.mois$nom_mois == mois)],mois,
-                              "/tblFAMD_ACP_FAMD_",mois,".csv"),drop="V1")
-    tbl_data = data_mois[,1:17]
-    
-    pca1 <- PCA(tbl_data, graph = FALSE)
-    #PCA -> ggplot
-    # https://tem11010.github.io/Plotting-PCAs/
-    tbl_data$pc1 <- pca1$ind$coord[, 1]
-    tbl_data$pc2 <- pca1$ind$coord[, 2]  
-    pca.vars <- pca1$var$coord %>% data.frame
-    pca.vars$vars <- rownames(pca.vars)
-    
-    #https://stackoverflow.com/questions/51219267/pca-scaling-not-applied-to-individuals
-    # #https://rdrr.io/cran/factoextra/src/R/fviz_pca.R#sym-fviz_pca_biplot
-    # r_scale = (max(pca1$ind$coord) - min(pca1$ind$coord))/
-    #   (max(pca1$var$coord) - min(pca1$var$coord))
-    
-    N = nchar(mois) + 1
-    pca.vars$vars_noms = substr(pca.vars$vars,1, nchar(pca.vars$vars)-N)
-    
-    pca.vars.m <- melt(pca.vars, id.vars = "vars",warning =F)
-    circleFun <- function(center = c(0,0),diameter = 1, npoints = 100){
-      r = diameter / 2
-      tt <- seq(0,2*pi,length.out = npoints)
-      xx <- center[1] + r * cos(tt)
-      yy <- center[2] + r * sin(tt)
-      return(data.frame(x = xx, y = yy))
-    }
-    circ <- circleFun(c(0,0),2,npoints = 500)
-    
-    seuil = 0.2
-    pca.vars.2 = pca.vars %>%
-      filter(Dim.1 > seuil | Dim.1 < -seuil | Dim.2 > seuil | Dim.2 < -seuil) 
-    nb_var_drop = dim(pca.vars)[1] -dim(pca.vars.2)[1]
-    cat(paste0(nb_var_drop," variables ont été retirées pour faciliter la visualisation."))
-    
-    # Valeurs des usages
-    # USAGE
-    liste_rast = list.files(paste0(output_path,"/niches/",usage,"/predictions/"),".tif",
-                            full.names = T)
-    if(length(liste_rast[grep(mois, liste_rast)])==0){
-      cat("\nPas d'usage ",usage,"au mois de ",mois,".")
-    }else{
-    r = stack(liste_rast[grep(mois, liste_rast)])
-    names(r)=c("observation", "probabilite_prediction")
-    obs_sp = rasterToPolygons(r$observation,fun=function(x)x==1, dissolve=TRUE)
-    # AXES ACP
-    r.AFDM <- stack(list.files(paste0(gitCaractMilieu,"/output/ACP/ACP_FAMD/",
-                                      df.mois$numero_mois[which(df.mois$nom_mois == mois)],mois,
-                                      "/"),".tif", full.names = T))
-    # EXTRACTION VALEURS
-    library(exactextractr)
-    values_usages <- as.data.frame(exact_extract(r.AFDM, obs_sp, include_xy=T))
-    head(values_usages)
-    values_usages$axe1_ACP_FAMD = values_usages[,1]
-    values_usages$axe2_ACP_FAMD = values_usages[,2]
-    
-    pca.vars.2 = merge(pca.vars.2, dim_col, by="vars_noms")
-    # Densité individus + flèches variables, en couleur de dimension
-    P3 = ggplot() +
-      geom_path(data = circ,aes(x,y), lty = 2, color = "grey", alpha = 0.7) +
-      geom_hline(yintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
-      geom_vline(xintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
-      geom_hex(data=values_usages, aes(x="axe1_ACP_FAMD", 
-                                       y="axe2_ACP_FAMD")) +
-      geom_segment(data = pca.vars.2, aes(x = 0, xend = Dim.1*4, y = 0, yend = Dim.2*4),
-                   arrow = arrow(length = unit(0.025, "npc"), type = "open"), 
-                   lwd = 0.6, colour='black') + 
-      geom_text(data = pca.vars.2,size = 10,
-                aes(x = Dim.1*3.5, y =  Dim.2*3.5,
-                    label = vars_noms),colour=pca.vars.2$colour_dim,
-                check_overlap = F) +
-      labs(x="ACP 1",y="ACP2", fill="Densité\n(en pixels)",
-           title= paste0("Usage ",usage," - ",mois))+
-      coord_equal() +
-      scale_fill_continuous(type = "viridis",direction=-1)+
-      theme_bw() +
-      theme(panel.grid = element_blank(), text = element_text(size=15),
-            panel.border = element_rect(fill= "transparent"))
-    
-    png(file=paste0(output_path,"/niches/",usage,"/densite_dim_",mois,".png"), 
-        width=1400, height=800)
-    print(P3)
-    dev.off()
-    
-    # Graph du cercle de corrélation avec toutes les variables
-    pca.vars
-    pca.vars = merge(pca.vars, dim_col, by="vars_noms")
-    P1 = ggplot() +
-      geom_path(data = circ,aes(x,y), lty = 2, color = "grey", alpha = 0.7) +
-      geom_hline(yintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
-      geom_vline(xintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
-      geom_segment(data = pca.vars, aes(x = 0, xend = Dim.1, y = 0, yend = Dim.2),
-                   arrow = arrow(length = unit(0.025, "npc"), type = "open"), 
-                   lwd = 0.5) + 
-      geom_text(data = pca.vars,size=10,
-                aes(x = Dim.1*1.15, y =  Dim.2*1.15,
-                    label = vars_noms),colour=pca.vars$colour_dim,
-                check_overlap = F) +
-      labs(x="ACP 1",y="ACP2", title= mois)+
-      coord_equal() +
-      theme_minimal() +
-      theme(panel.grid = element_blank(), 
-            text = element_text(size=15),
-            panel.border = element_rect(fill= "transparent"))
-    
-    png(file=paste0(gitCaractMilieu,"/output/ACP/ACP_FAMD/",
-                    df.mois$numero_mois[which(df.mois$nom_mois == mois)],mois,
-                    "/plot_rmd/cercle_correlation_",mois,".png"), 
-        width=1400, height=800)
-    print(P1)
-    dev.off()
-    
-    # Graph du cercle de corrélation avec les variables (> seuil)
-    P2 = ggplot() +
-      geom_path(data = circ,aes(x,y), lty = 2, color = "grey", alpha = 0.7) +
-      geom_hline(yintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
-      geom_vline(xintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
-      geom_segment(data = pca.vars.2, aes(x = 0, xend = Dim.1, y = 0, yend = Dim.2),
-                   arrow = arrow(length = unit(0.025, "npc"), type = "open"), 
-                   lwd = 0.5) + 
-      geom_text(data = pca.vars.2,size=10,
-                aes(x = Dim.1*1.15, y =  Dim.2*1.15,
-                    label = vars_noms),colour=pca.vars.2$colour_dim,
-                check_overlap = F) +
-      labs(x="ACP 1",y="ACP2", title= mois)+
-      coord_equal() +
-      theme_minimal() +
-      theme(panel.grid = element_blank(), text = element_text(size=15),
-            panel.border = element_rect(fill= "transparent"))
-    
-    png(file=paste0(gitCaractMilieu,"/output/ACP/ACP_FAMD/",
-                    df.mois$numero_mois[which(df.mois$nom_mois == mois)],mois,
-                    "/plot_rmd/cercle_correlation_seuil_",mois,".png"), 
-        width=1400, height=800)
-    print(P2)
-    dev.off()}
-  }
-}
-
-VizIndDim("Ni")
+ # - pour un multi-usage, sur une liste de mois 
+# --> ne marche pas quand un des 3 pas présents sur un mois
+EspEco(usage=c("Pa","Vt","Ni"),type_donnees = "brute",liste_mois=liste.mois,espace="dimension")
 
 
+# pour 1 usage, sur un mois, en dimension --> OK
+EspEco(usage="Rp",type_donnees = "brute",liste_mois= "juillet",espace="dimension")
 
-
-
+ # pour 1 usage, sur une liste de mois, en dimension --> OK
+EspEco(usage="Pa",type_donnees = "brute",liste_mois=liste.mois,espace="dimension")
