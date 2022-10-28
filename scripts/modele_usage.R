@@ -2,7 +2,7 @@
 # Nom : Modélisation des usages
 # Auteure : Perle Charlot
 # Date de création : 09-09-2022
-# Dates de modification : 26-10-2022
+# Dates de modification : 28-10-2022
 
 ### Librairies -------------------------------------
 library(glmmfields)
@@ -92,12 +92,12 @@ AjustExtCRS <- function(path.raster.to.check, path.raster.ref=chemin_mnt){
 # Fonction qui sort les valeurs des var env associées à un usage donné
 ExtractData1Use <- function(usage,
                             fenetre_temporelle = liste.mois,
-                            type_donnees # "brute", "ACP"
+                            type_donnees # "brute", "ACP", "axes_AFDM"
 ){
   # # TEST
-  # usage = "couchade"
+  # usage = "paturage"
   # fenetre_temporelle = liste.mois
-  # type_donnees = "brute"
+  # type_donnees = "ACP"
   
   DataUsageMois <- function(mois){
     # # TEST
@@ -105,12 +105,19 @@ ExtractData1Use <- function(usage,
     
     # Raster de l'usage considéré
     raster.usage.mois.path = list.files(paste0(wd,"/output/par_periode/",mois),
-                                        usage,full.names = T)
+                                        pattern= paste0(usage,".tif$"),
+                                        full.names = T)
     if(length(raster.usage.mois.path)!= 0){
       raster.usage.mois = terra::rast(raster.usage.mois.path)
       
       # Rasters environnement : sur le mois considéré
       if(type_donnees == "ACP"){
+        all.tif = list.files(paste0(gitCaractMilieu,"/output/ACP/toutes/"), 
+                             pattern = ".tif",recursive = T,full.names = T)
+        all.tif = all.tif[grep(mois,all.tif)]
+        all.tif = all.tif[grep("axe",all.tif)]
+      }
+      if(type_donnees == "axes_AFDM"){
         all.tif = list.files(paste0(gitCaractMilieu,"/output/ACP/"), 
                              pattern = ".tif",recursive = T,full.names = T)
         all.tif = all.tif[grep(mois,all.tif)]
@@ -118,22 +125,18 @@ ExtractData1Use <- function(usage,
         all.tif = all.tif[!grepl("toutes",all.tif)]
         all.tif = all.tif[!grepl("ACP_FAMD",all.tif)]
         all.tif = all.tif[!grepl("CA/sans_ACP_clim",all.tif)]
-        # Sauvegarder table des valeurs des rasters par mois
-        if(!dir.exists(paste0(input_path,"/vars_env/ACP/",mois))){
-          dir.create(paste0(input_path,"/vars_env/ACP/",mois),recursive=T)
-        }
-        DOS = paste0(input_path,"/vars_env/ACP/",mois)
+        all.tif = all.tif[grep("axe",all.tif)]
       } 
       if(type_donnees == "brute"){
         all.tif = list.files(paste0(gitCaractMilieu,"/output/stack_dim/"),
-                             pattern = ".tif",recursive = T,full.names = T)
+                             pattern = ".tif$",recursive = T,full.names = T)
         all.tif = all.tif[grep(mois,all.tif)]
-        # Sauvegarder table des valeurs des rasters par mois
-        if(!dir.exists(paste0(input_path,"/vars_env/brute/",mois))){
-          dir.create(paste0(input_path,"/vars_env/brute/",mois),recursive=T)
-        }
-        DOS = paste0(input_path,"/vars_env/brute/",mois)
       }
+      # Sauvegarder table des valeurs des rasters par mois
+      if(!dir.exists(paste0(input_path,"/vars_env/",type_donnees,"/",mois))){
+        dir.create(paste0(input_path,"/vars_env/",type_donnees,"/",mois),recursive=T)
+      }
+      DOS = paste0(input_path,"/vars_env/",type_donnees,"/",mois)
       # Stacker les variables de l'environnement
       stack.env2 = stack(all.tif)
       stack.env = terra::rast(all.tif)
@@ -160,7 +163,7 @@ ExtractData1Use <- function(usage,
       if(length(FILS) == 0){
         df.env = as.data.frame(as.data.table(stack.env[]))
         # Rendre noms variables propres
-        if(type_donnees == "ACP"){
+        if(type_donnees == "ACP" | type_donnees == "axes_FAMD"){
           # Remove nom mois dans colonnes
           to.modif = names(df.env)[grep(mois,names(df.env))]
           new.names = unlist(lapply(to.modif, function(x) substring(x,1,nchar(x) - nchar(mois) - 1)))
@@ -180,15 +183,16 @@ ExtractData1Use <- function(usage,
       # stack -> df
       df.env.usage = as.data.frame(as.data.table(stack.env.usage[]))
       df.env.usage = na.omit(df.env.usage)
-     
+      # ajout coordonnées x y 
+      df.crds <- terra::crds(stack.env.usage,df=TRUE)
+      df.env.usage = cbind(df.env.usage,df.crds)
       # Arranger les noms, again
-      if(type_donnees == "ACP"){
+      if(type_donnees == "ACP"| type_donnees == "axes_FAMD"){
         # Remove nom mois dans colonnes
         to.modif = names(df.env.usage)[grep(mois,names(df.env.usage))]
         new.names = unlist(lapply(to.modif, function(x) substring(x,1,nchar(x) - nchar(mois) - 1)))
         names(df.env.usage)[grep(mois,names(df.env.usage))] = new.names
       }
-      # TODO: ajouter les coordonnées x y ???
       return(df.env.usage)
     } else{
       cat("\n L'usage",usage,"n'est pas présent au mois de",mois,".")
@@ -210,7 +214,7 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
   
   # TEST
   nom_court_usage = "Ni"
-  type_donnees = "brute" # "ACP"
+  type_donnees = "ACP" # "ACP" "axes_AFDM" "brute"
   
   
   if(!dir.exists(paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage))){
@@ -265,8 +269,8 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
       scale_colour_discrete(name = nom_beau, labels = c("Absence", "Présence"))+
       theme(text = element_text(size=14), axis.text.y = element_text(colour = rev(b2)))
   }
-  if(type_donnees == "ACP"){
-    plot =  data_glm %>% 
+  if(type_donnees == "axes_AFDM" | type_donnees == "ACP"){
+    plot =  data_glm %>% subset(select=-c(x,y) ) %>%
       pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
       ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
       geom_boxplot()+ 
@@ -278,7 +282,6 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
       width=1400, height=800)
   print(plot)
   dev.off()
-  
   
   # TODO : incorporer workflow BIOMOD2
   # - construire les modèles avec GLM et RF
@@ -300,9 +303,20 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
   WEIGHT <-  n_pre / n_abs
   w.vect <- ifelse(train$usage == 0,WEIGHT,1)
   # Fit
-  model.glm <- glm(usage ~ ., family=binomial, data=train, 
-                   weights = w.vect)
-  model.glm.step <- stepAIC(model.glm)
+  
+  if(type_donnees == "brute" | type_donnees = "axes_AFDM"){
+    model.glm <- glm(usage ~ ., family=binomial, data=train, 
+                     weights = w.vect)
+    model.glm.step <- stepAIC(model.glm)
+  }
+  if(type_donnees == "ACP"){
+    model.glm.step <- glm(usage ~ axe1_toutes + axe2_toutes + 
+                       I(axe1_toutes^2)+ I(axe2_toutes^2) + #termes quadratiques
+                       axe1_toutes*axe2_toutes, #terme interaction entre vars X
+                     family = binomial, data=train, 
+                     weights = w.vect)
+  }
+
   # Enregistrer le modèle pour pouvoir ensuite echo = F
   save(model.glm.step, file = paste0(output_path,"/niches/",type_donnees,
                                      "/",nom_court_usage,"/modele.rdata"))
@@ -341,15 +355,16 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
   
   ### RF ####
   library(randomForest)
-  
-  model.rf <- randomForest(usage ~ .,data=train,weights = w.vect)
+  if(type_donnees == "ACP"){
+    model.rf <- randomForest(usage ~ axe1_toutes + axe2_toutes + 
+                               I(axe1_toutes^2)+ I(axe2_toutes^2) + #termes quadratiques
+                               axe1_toutes*axe2_toutes,
+                             data=train,weights = w.vect)
+  }
+
 
   summary(model.rf)
-  
 
-  # TODO : explore and use BIOMOD package
-  # start with GLM and RF
-  library()
   
   # Prédiction spatialisée
   predUsageMois <- function(mois){
@@ -771,6 +786,21 @@ lapply(c("nidification",
          "randonnee_pedestre",
          "VTT",
          "parade"),function(x) ExtractData1Use(usage=x, type_donnees = "brute"))
+
+lapply(c("nidification",
+         "couchade",
+         "paturage",
+         "randonnee_pedestre",
+         "VTT",
+         "parade"),function(x) ExtractData1Use(usage=x, type_donnees = "ACP"))
+
+lapply(c("nidification",
+         "couchade",
+         "paturage",
+         "randonnee_pedestre",
+         "VTT",
+         "parade"),function(x) ExtractData1Use(usage=x, type_donnees = "axes_FAMD"))
+
 
 # Exploitation des données : création modèle
 set.seed(1)
