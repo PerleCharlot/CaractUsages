@@ -10,10 +10,10 @@ output:
     
 ---
 
+TODO:
+incorporer images pour visualisation
+
 ```{r setup, include=FALSE}
-
-
-
 knitr::opts_chunk$set(echo = TRUE)
 
 library(raster)
@@ -34,124 +34,68 @@ library(leafem)
 wd <- getwd()
 # Dossier des outputs (dans le git)
 output_path <- paste0(wd,"/output/")
+niche_path <- paste0(output_path,"/niches/")
+type_donnees = "brute"
 ```
 
 # Visualisation {.tabset}
 
 ## Usage nidification
-```{r , echo=FALSE}
-df.Ni = fread(paste0(output_path,"/niches/df_niche_nidification.csv"), drop="V1")
-# Test de modèle sur l'usage Ni
-data_glm = df.Ni
-```
 
 Distribution des variables : 
+```{r,out.width="100%",fig.show='hold', echo=FALSE, warning=FALSE}
+img_path = paste0(niche_path, type_donnees,"/Ni/viz_distrib_famd.png")
+include_graphics(img_path)
+``` 
 
-```{r, echo=FALSE}
-names(data_glm)[1] = "usage"
-data_glm %>% 
-  pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
-  ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
-  geom_boxplot()+ 
-  scale_colour_discrete(name = "Nidification", labels = c("Absence", "Présence"))
+TODO
+Distribution dans l'espace de l'ACP :
+```{r,out.width="100%",fig.show='hold', echo=FALSE, warning=FALSE}
+img_path = paste0(niche_path, type_donnees,"/Ni/esp_eco/densite_dim_juillet.png")
+include_graphics(img_path)
+``` 
 
-```
 
 ## Usage lek
-```{r , echo=FALSE}
-df.Lk = fread(paste0(output_path,"/niches/df_niche_parade.csv"), drop="V1")
-# Test de modèle sur l'usage Ni
-data_glm = df.Lk
-```
 
 Distribution des variables : 
 
-```{r, echo=FALSE}
-names(data_glm)[1] = "usage"
-data_glm %>% 
-  pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
-  ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
-  geom_boxplot()+ 
-  scale_colour_discrete(name = "Lek", labels = c("Absence", "Présence"))
-
-```
+```{r,out.width="100%",fig.show='hold', echo=FALSE, warning=FALSE}
+img_path = paste0(niche_path, type_donnees,"/Lk/viz_distrib_famd.png")
+include_graphics(img_path)
+``` 
 
 ## Usage pâturage
 
-```{r , echo=FALSE}
-df.Pa = fread(paste0(output_path,"/niches/df_niche_paturage.csv"), drop="V1")
-# Test de modèle sur l'usage Ni
-data_glm = df.Pa
-```
-
 Distribution des variables : 
-
-```{r, echo=FALSE}
-names(data_glm)[1] = "usage"
-data_glm %>% 
-  pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
-  ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
-  geom_boxplot()+ 
-  scale_colour_discrete(name = "Pâturage", labels = c("Absence", "Présence"))
-
-```
+```{r,out.width="100%",fig.show='hold', echo=FALSE, warning=FALSE}
+img_path = paste0(niche_path, type_donnees,"/Pa/viz_distrib_famd.png")
+include_graphics(img_path)
+``` 
 
 ## Usage couchade
-```{r , echo=FALSE}
-df.Co = fread(paste0(output_path,"/niches/df_niche_couchade.csv"), drop="V1")
-# Test de modèle sur l'usage Ni
-data_glm = df.Co
-```
 
 Distribution des variables : 
-
-```{r, echo=FALSE}
-names(data_glm)[1] = "usage"
-data_glm %>% 
-  pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
-  ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
-  geom_boxplot()+ 
-  scale_colour_discrete(name = "Couchade", labels = c("Absence", "Présence"))
-
-```
+```{r,out.width="100%",fig.show='hold', echo=FALSE, warning=FALSE}
+img_path = paste0(niche_path, type_donnees,"/Co/viz_distrib_famd.png")
+include_graphics(img_path)
+``` 
 
 ## Usage randonnée pédestre
-```{r , echo=FALSE}
-df.Ra = fread(paste0(output_path,"/niches/df_niche_randonnee_pedestre.csv"), drop="V1")
-# Test de modèle sur l'usage Ni
-data_glm = df.Ra
-```
 
 Distribution des variables : 
-
-```{r, echo=FALSE}
-names(data_glm)[1] = "usage"
-data_glm %>% 
-  pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
-  ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
-  geom_boxplot()+ 
-  scale_colour_discrete(name = "Randonnée\npédestre", labels = c("Absence", "Présence"))
-
-```
+```{r,out.width="100%",fig.show='hold', echo=FALSE, warning=FALSE}
+img_path = paste0(niche_path, type_donnees,"/Rp/viz_distrib_famd.png")
+include_graphics(img_path)
+``` 
 
 ## Usage VTT
-```{r , echo=FALSE}
-df.Vt = fread(paste0(output_path,"/niches/df_niche_VTT.csv"), drop="V1")
-# Test de modèle sur l'usage Ni
-data_glm = df.Vt
-```
 
 Distribution des variables : 
-
-```{r, echo=FALSE}
-names(data_glm)[1] = "usage"
-data_glm %>% 
-  pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
-  ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
-  geom_boxplot()+ 
-  scale_colour_discrete(name = "VTT", labels = c("Absence", "Présence"))
-
-```
+```{r,out.width="100%",fig.show='hold', echo=FALSE, warning=FALSE}
+img_path = paste0(niche_path, type_donnees,"/Vt/viz_distrib_famd.png")
+include_graphics(img_path)
+``` 
 
 # Modélisation {.tabset}
 
@@ -166,114 +110,114 @@ On impose un seuil arbitraire de 0.5 pour transformer les probabilités de prés
 ## Usage nidification
 
 ```{r , echo=FALSE}
-load(file = paste0(output_path,"/niches/Ni/modele.rdata"))
+load(file = paste0(niche_path, type_donnees,"/Ni/modele.rdata"))
 summary(model.glm.step)
 ```
 
 Courbe ROC et AUC :
 ```{r, echo=FALSE,out.width = "70%"}
-img1_path <- paste0(output_path,"/niches/Ni/roc.png")
+img1_path <- paste0(niche_path, type_donnees,"/Ni/roc.png")
 include_graphics(img1_path)
 ```
 
 Matrice de confusion :
 ```{r , echo=FALSE}
-load(file=paste0(output_path,"/niches/Ni/CM.rdata"))
+load(file=paste0(niche_path, type_donnees,"/Ni/CM.rdata"))
 CM
 ```
 
 ## Usage lek
 
 ```{r , echo=FALSE}
-load(file = paste0(output_path,"/niches/Lk/modele.rdata"))
+load(file = paste0(niche_path, type_donnees,"/Lk/modele.rdata"))
 summary(model.glm.step)
 ```
 
 Courbe ROC et AUC :
 ```{r, echo=FALSE,out.width = "70%"}
-img1_path <- paste0(output_path,"/niches/Lk/roc.png")
+img1_path <- paste0(niche_path, type_donnees,"/Lk/roc.png")
 include_graphics(img1_path)
 ```
 
 Matrice de confusion :
 ```{r , echo=FALSE}
-load(file=paste0(output_path,"/niches/Lk/CM.rdata"))
+load(file=paste0(niche_path, type_donnees,"/Lk/CM.rdata"))
 CM
 ```
 
 ## Usage pâturage
 
 ```{r , echo=FALSE}
-load(file = paste0(output_path,"/niches/Pa/modele.rdata"))
+load(file = paste0(niche_path, type_donnees,"/Pa/modele.rdata"))
 summary(model.glm.step)
 ```
 
 Courbe ROC et AUC :
 ```{r, echo=FALSE,out.width = "70%"}
-img1_path <- paste0(output_path,"/niches/Pa/roc.png")
+img1_path <- paste0(niche_path, type_donnees,"/Pa/roc.png")
 include_graphics(img1_path)
 ```
 
 Matrice de confusion :
 ```{r , echo=FALSE}
-load(file=paste0(output_path,"/niches/Pa/CM.rdata"))
+load(file=paste0(niche_path, type_donnees,"/Pa/CM.rdata"))
 CM
 ```
 
 ## Usage couchade
 
 ```{r , echo=FALSE}
-load(file = paste0(output_path,"/niches/Co/modele.rdata"))
+load(file = paste0(niche_path, type_donnees,"/Co/modele.rdata"))
 summary(model.glm.step)
 ```
 
 Courbe ROC et AUC :
 ```{r, echo=FALSE,out.width = "70%"}
-img1_path <- paste0(output_path,"/niches/Co/roc.png")
+img1_path <- paste0(niche_path, type_donnees,"/Co/roc.png")
 include_graphics(img1_path)
 ```
 
 Matrice de confusion :
 ```{r , echo=FALSE}
-load(file=paste0(output_path,"/niches/Co/CM.rdata"))
+load(file=paste0(niche_path, type_donnees,"/Co/CM.rdata"))
 CM
 ```
 
 ## Usage randonnée pédestre
 
 ```{r , echo=FALSE}
-load(file = paste0(output_path,"/niches/Rp/modele.rdata"))
+load(file = paste0(niche_path, type_donnees,"/Rp/modele.rdata"))
 summary(model.glm.step)
 ```
 
 Courbe ROC et AUC :
 ```{r, echo=FALSE,out.width = "70%"}
-img1_path <- paste0(output_path,"/niches/Rp/roc.png")
+img1_path <- paste0(niche_path, type_donnees,"/Rp/roc.png")
 include_graphics(img1_path)
 ```
 
 Matrice de confusion :
 ```{r , echo=FALSE}
-load(file=paste0(output_path,"/niches/Rp/CM.rdata"))
+load(file=paste0(niche_path, type_donnees,"/Rp/CM.rdata"))
 CM
 ```
 
 ## Usage VTT
 
 ```{r , echo=FALSE}
-load(file = paste0(output_path,"/niches/Vt/modele.rdata"))
+load(file = paste0(niche_path, type_donnees,"/Vt/modele.rdata"))
 summary(model.glm.step)
 ```
 
 Courbe ROC et AUC :
 ```{r, echo=FALSE,out.width = "70%"}
-img1_path <- paste0(output_path,"/niches/Vt/roc.png")
+img1_path <- paste0(niche_path, type_donnees,"/Vt/roc.png")
 include_graphics(img1_path)
 ```
 
 Matrice de confusion :
 ```{r , echo=FALSE}
-load(file=paste0(output_path,"/niches/Vt/CM.rdata"))
+load(file=paste0(niche_path, type_donnees,"/Vt/CM.rdata"))
 CM
 ```
 
@@ -283,7 +227,7 @@ CM
 ## Usage nidification
 Pour le mois d'août.
 ```{r, echo=FALSE,fig.align="center",message=FALSE,warning=FALSE}
-liste_rast = list.files(paste0(output_path,"/niches/Ni/predictions/"),".tif",
+liste_rast = list.files(paste0(niche_path, type_donnees,"/Ni/predictions/"),".tif",
                         full.names = T)
 r = stack(liste_rast[1])
 
@@ -326,7 +270,8 @@ leaflet() %>%
 
 Pour le mois de juin.
 ```{r, echo=FALSE,fig.align="center",message=FALSE,warning=FALSE}
-liste_rast = list.files(paste0(output_path,"/niches/Lk/predictions/"),".tif",
+liste_rast = list.files(paste0(niche_path,type_donnees,
+                               "/Lk/predictions/"),".tif",
                         full.names = T)
 r = stack(liste_rast[1])
 
@@ -368,7 +313,7 @@ leaflet() %>%
 ## Usage pâturage
 Pour le mois d'août.
 ```{r, echo=FALSE,fig.align="center",message=FALSE,warning=FALSE}
-liste_rast = list.files(paste0(output_path,"/niches/Pa/predictions/"),".tif",
+liste_rast = list.files(paste0(niche_path, type_donnees,"/Pa/predictions/"),".tif",
                         full.names = T)
 r = stack(liste_rast[1])
 
@@ -410,7 +355,7 @@ leaflet() %>%
 ## Usage couchade
 Pour le mois d'août.
 ```{r, echo=FALSE,fig.align="center",message=FALSE,warning=FALSE}
-liste_rast = list.files(paste0(output_path,"/niches/Co/predictions/"),".tif",
+liste_rast = list.files(paste0(niche_path, type_donnees,"/Co/predictions/"),".tif",
                         full.names = T)
 r = stack(liste_rast[1])
 
@@ -452,7 +397,7 @@ leaflet() %>%
 ## Usage randonnée pédestre
 Pour le mois d'août.
 ```{r, echo=FALSE,fig.align="center",message=FALSE,warning=FALSE}
-liste_rast = list.files(paste0(output_path,"/niches/Rp/predictions/"),".tif",
+liste_rast = list.files(paste0(niche_path, type_donnees,"/Rp/predictions/"),".tif",
                         full.names = T)
 r = stack(liste_rast[1])
 
@@ -494,7 +439,7 @@ leaflet() %>%
 ## Usage VTT
 Pour le mois d'août.
 ```{r, echo=FALSE,fig.align="center",message=FALSE,warning=FALSE}
-liste_rast = list.files(paste0(output_path,"/niches/Vt/predictions/"),".tif",
+liste_rast = list.files(paste0(niche_path, type_donnees,"/Vt/predictions/"),".tif",
                         full.names = T)
 r = stack(liste_rast[1])
 
