@@ -2,7 +2,7 @@
 # Nom : Modélisation des usages
 # Auteure : Perle Charlot
 # Date de création : 09-09-2022
-# Dates de modification : 28-10-2022
+# Dates de modification : 01-11-2022
 
 ### Librairies -------------------------------------
 library(glmmfields)
@@ -212,9 +212,9 @@ ExtractData1Use <- function(usage,
 # Crée un ENM (pour 1 usage donné), puis prédit tous les mois
 CreateModelUsage <- function(nom_court_usage, type_donnees){
   
-  # TEST
-  nom_court_usage = "Ni"
-  type_donnees = "ACP" # "ACP" "axes_AFDM" "brute"
+  # # TEST
+  # nom_court_usage = "Ni"
+  # type_donnees = "ACP" # "ACP" "axes_AFDM" "brute"
   
   
   if(!dir.exists(paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage))){
@@ -229,6 +229,14 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
   nom_lg = corresp_nom_us$nom_long[corresp_nom_us$Nom_court == nom_court_usage]
   data_glm = fread(paste0(output_path,"/niches/",type_donnees,"/df_niche_",nom_lg,".csv"), drop="V1")
   names(data_glm)[1] = "usage"
+  
+  # Make factor variable (with absence/presence name)
+  data_glm$usage <- as.factor(data_glm$usage)
+  data_glm$usage <- fct_recode(data_glm$usage,
+             "presence" = "1", 
+             "absence" = "0")
+  str(data_glm)
+  
   # Visualisation distribution le long des variables environnementales
   if(type_donnees == "brute"){
 
@@ -274,7 +282,7 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
       pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
       ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
       geom_boxplot()+ 
-      scale_colour_discrete(name = nom_beau, labels = c("Absence", "Présence"))+
+      scale_colour_discrete(name = nom_beau)+
       theme(text = element_text(size=14))
   }
   # Sauvegarde
@@ -293,8 +301,6 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
   train <- data_glm[sample, ]
   test <- data_glm[!sample, ] 
   
-  ### GLM ####
-  
   # Weight absence obs (to give the same weight
   # to all absence and all presence observations)
   n_abs <- sum(train$usage == 0)
@@ -302,41 +308,118 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
   # n_abs+ n_pre == dim(train)[1]
   WEIGHT <-  n_pre / n_abs
   w.vect <- ifelse(train$usage == 0,WEIGHT,1)
-  # Fit
   
-  if(type_donnees == "brute" | type_donnees = "axes_AFDM"){
-    model.glm <- glm(usage ~ ., family=binomial, data=train, 
-                     weights = w.vect)
-    model.glm.step <- stepAIC(model.glm)
+  # Conditions de contrôle
+  fitControl <- trainControl(## 10-fold CV
+    method = "repeatedcv",
+    number = 10,
+    repeats = 10,
+    summaryFunction = twoClassSummary,
+    classProbs = TRUE,
+    savePredictions=TRUE)
+  
+  # Fit
+  if(type_donnees == "brute" | type_donnees == "axes_AFDM"){
+    
+    # model.glm <- glm(usage ~ ., family=binomial, data=train, 
+    #                  weights = w.vect)
+    # model.glm <- stepAIC(model.glm)
+    
+    train <- susbset(train, select=-c("x","y"))
+    
+    # GLM
+    model.glm <- caret::train(usage ~ .,
+                              train,
+                              method = "glm",
+                              family = "binomial",
+                              trControl = fitControl,
+                              metric = 'ROC',
+                              weights = w.vect)
   }
   if(type_donnees == "ACP"){
-    model.glm.step <- glm(usage ~ axe1_toutes + axe2_toutes + 
-                       I(axe1_toutes^2)+ I(axe2_toutes^2) + #termes quadratiques
-                       axe1_toutes*axe2_toutes, #terme interaction entre vars X
-                     family = binomial, data=train, 
-                     weights = w.vect)
+    
+    # Formule
+    formula.usage = as.formula(usage ~ axe1_toutes + axe2_toutes + 
+                                 I(axe1_toutes^2)+ I(axe2_toutes^2) + #termes quadratiques
+                                 axe1_toutes*axe2_toutes)
+
+    # GLM
+    model.glm <- caret::train(formula.usage,
+                             train,
+                             method = "glm",
+                             family = "binomial",
+                             trControl = fitControl,
+                             metric = 'ROC',
+                             weights = w.vect)
+      
+    #densityplot(model.glm, pch = "|")
+    # # estimate of the uncertainty in our accuracy estimate
+    # model.glm$results
+    
+    # summary(model.glm$finalModel)
+    # model.glm.f <- model.glm$finalModel
+    
+    # TODO : inclure RF + comparaison modèle
+    # # RF
+    # model.rf <- caret::train(formula.usage,
+    #                              train,
+    #                              method = "ranger",
+    #                              trControl = fitControl,
+    #                              metric= 'ROC',
+    #                              weights = w.vect)
+    # 
+    # # Comparaison entre modèles
+    # resamps <- resamples(list(RF = model.rf,
+    #                           GLM = model.glm))
+    # summary(resamps)
+    # trellis.par.set(caretTheme())
+    # dotplot(resamps, metric = "ROC")
+    
+
   }
 
   # Enregistrer le modèle pour pouvoir ensuite echo = F
-  save(model.glm.step, file = paste0(output_path,"/niches/",type_donnees,
-                                     "/",nom_court_usage,"/modele.rdata"))
+  save(model.glm, file = paste0(output_path,"/niches/",type_donnees,
+                                     "/",nom_court_usage,"/modele_glm.rdata"))
   
-  # Coefficients
-  # exp(coef(glm.Co.step))
+  # Find best threshold
+  probs <- seq(.1, 0.9, by = 0.02)
+  ths <- thresholder(model.glm,
+                     threshold = probs,
+                     final = TRUE,
+                     statistics = "all")
+  # ind_thr = which(ths[,"Balanced Accuracy"] == max(ths[,"Balanced Accuracy"]))
+  # ths[ind_thr,"prob_threshold"]
+  ind_thr = which(ths[,"J"] == max(ths[,"J"]))
+  proba_threshold = ths[ind_thr,"prob_threshold"]
   
-  # Tester fiabilité modèle : score de Brier, matrice de confusion et AUC/ROC
-  brier_score = BrierScore(model.glm.step)
+  # # Tester fiabilité modèle : score de Brier, matrice de confusion et AUC/ROC
+  # brier_score = BrierScore(model.glm$finalModel)
+
   # Prédire sur jeu test pour tester accuracy + AUC
-  test$pred_prob <- predict(model.glm.step, test, type="response")
   
-  test$pred_resp <- ifelse(test$pred_prob > 0.50, 1, 0)
-  test$usage = as.factor(test$usage)
-  test$pred_resp = as.factor(test$pred_resp)
+  # test$pred_prob <- predict(model.glm, test, type="response")
+  # test$pred_resp <- ifelse(test$pred_resp_presence > 0.5, 1, 0)
+  # test$pred_resp = as.factor(test$pred_resp)
+  
+  pred_prob <- predict(model.glm, test, type="prob")
+  test <- cbind(test, pred_prob)
+  test$pred_resp <- ifelse(test$presence > proba_threshold, 1, 0)
+  test$pred_resp <- as.factor(test$pred_resp)
+  test$pred_resp <- fct_recode(test$pred_resp,
+                               "presence" = "1", 
+                               "absence" = "0")
+  
+  # Sauvegarde fichier test
+  write.csv(test,paste0(output_path,"/niches/",type_donnees,
+                        "/",nom_court_usage,"/table_test.csv") )
+  
   # Sauvegarde AUC/ROC
   png(file=paste0(output_path,"/niches/",type_donnees,
                   "/",nom_court_usage,"/roc.png"), 
       width=800, height=800)
-  print(roc(test$usage ~ test$pred_prob, plot = TRUE, print.auc = TRUE))
+  print(roc(test$usage ~ test$presence, plot = TRUE, print.auc = TRUE))
+  #print(roc(test$usage ~ test$pred_resp, plot = TRUE, print.auc = TRUE))
   dev.off()
   
   # TODO : trouver meilleur seuil pour convertir proba en P/A
@@ -352,20 +435,7 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
   CM = confusionMatrix(test$pred_resp, test$usage)
   save(CM, file=paste0(output_path,"/niches/",type_donnees,
                        "/",nom_court_usage,"/CM.rdata"))
-  
-  ### RF ####
-  library(randomForest)
-  if(type_donnees == "ACP"){
-    model.rf <- randomForest(usage ~ axe1_toutes + axe2_toutes + 
-                               I(axe1_toutes^2)+ I(axe2_toutes^2) + #termes quadratiques
-                               axe1_toutes*axe2_toutes,
-                             data=train,weights = w.vect)
-  }
 
-
-  summary(model.rf)
-
-  
   # Prédiction spatialisée
   predUsageMois <- function(mois){
     # # TEST
@@ -386,17 +456,27 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
       
       df.env <- fread(paste0(input_path,"/vars_env/",type_donnees,"/",
                              mois,"/dt_vars.csv"),dec=",")
-      df.env$prob <- predict(model.glm.step, df.env, type="response")
-      df.env$pred <- ifelse(df.env$prob > 0.50, 1, 0)
+      df.env2 = na.omit(df.env)
+      #df.env$prob <- predict(model.glm, df.env, type="prob")
       
-      raster_prob = rasterFromXYZ(data.frame(df.env$x, df.env$y, df.env$prob), crs=EPSG_2154)
+      prob_spatial <- predict(model.glm, df.env2, type="prob")
+      
+      #df.env$pred <- ifelse(df.env$prob > 0.50, 1, 0)
+      
+      raster_prob = rasterFromXYZ(data.frame(df.env2$x, df.env2$y, prob_spatial$presence), crs=EPSG_2154)
+      
+      #raster_prob = rasterFromXYZ(data.frame(df.env$x, df.env$y, df.env$prob), crs=EPSG_2154)
+      
       raster_obs = raster(paste0(output_path,"/par_periode/",mois,"/",nom_lg,".tif"))
       # mask (car 0 confondu avec NA hors N2000)
       raster_obs <- mask(raster_obs, limiteN2000.shp)
       
+      
+      raster_obs <- projectRaster(raster_obs, raster_prob)
+      
       all_rasters = stack(raster_obs, raster_prob)
-      names(all_rasters) = c("observation","probabilite_prediction")
-      # plot(all_rasters, colNA='black')
+      names(all_rasters) = c("observation","probabilite_presence")
+      #plot(all_rasters, colNA='black')
       
       writeRaster(all_rasters, 
                   paste0(output_path,"/niches/",type_donnees,"/",
@@ -806,6 +886,7 @@ lapply(c("nidification",
 set.seed(1)
 lapply(liste.usages, function(x) CreateModelUsage(nom_court_usage=x,type_donnees = "brute"))
 
+lapply(c("Rp","Pa"), function(x) CreateModelUsage(nom_court_usage=x,type_donnees = "ACP"))
 
 # raster_pred = rasterFromXYZ(data.frame(df.env$x, df.env$y, df.env$pred), crs=EPSG_2154)
 # # - raster accord entre obs et pred
