@@ -2,7 +2,7 @@
 # Nom : Modélisation des usages
 # Auteure : Perle Charlot
 # Date de création : 09-09-2022
-# Dates de modification : 02-11-2022
+# Dates de modification : 03-11-2022
 
 ### Librairies -------------------------------------
 library(glmmfields)
@@ -1190,20 +1190,65 @@ MAXY = max(dt_env$axe2)
 
 ### FIG 3
 
-# conditions env en fond + les 3 usages en densité -> difficile à lire
+
+# #CE QUI NE MARCHE PAS
+# scale_fill_gradient(low = "white", high = "black")
+# scale_fill_gradientn(colours = terrain.colors(7))
+# scale_fill_distiller(type="seq",palette = "Greys")
+
 ggplot() +
-  geom_density_2d_filled(data=dt_env, aes(x = axe1, y = axe2),alpha = 0.4) +
-  geom_density_2d(data=dt_Ni, aes(x=axe1, y=axe2),
-                  colour="darkgreen",
-                  contour_var="ndensity")+
-  geom_density_2d(data=dt_Rp, aes(x=axe1, y=axe2),
-                  colour="blue",
-                  contour_var="ndensity")+
-  geom_density_2d(data=dt_Pa, aes(x=axe1, y=axe2),
-                  colour="red",
-                  contour_var="ndensity")+
+  geom_density_2d_filled(data=dt_env, 
+                         aes(x = axe1, y = axe2),
+                         alpha = 0.3,
+                         breaks = c(0.005,seq(from=0.01,to=0.075,0.01)),
+                         show.legend=F
+                         ) +
+  #scale_fill_brewer(palette = "Greys", direction = 1) + # sans cette ligne, ça fait en viridis
+  #scale_fill_grey(start=0.7, end=0.01)+ # fonctionne mais pas satisfaisant
+  #scale_fill_discrete("grey10","grey20","grey30","grey40","grey50","grey60")+
+  #scale_fill_manual(values=c("blue","red","olivedrab","chocolate","azure4","cornflowerblue","maroon"))+
+  scale_fill_manual(values=c("grey70","grey50","grey40","grey25",
+                             "grey20","grey0","grey0"))+
+  geom_density_2d(data=dt_Rp, 
+                  aes(x=axe1, y=axe2), 
+                  breaks = c(0.05,0.5,1), # enveloppes à 95% des points et 50%
+                  colour="darkblue",
+                  contour_var="ndensity"
+  )+
+  geom_density_2d(data=dt_Pa, 
+                  aes(x=axe1, y=axe2), 
+                  breaks = c(0.05,0.5,1), # enveloppes à 95% des points et 50%
+                  colour="firebrick",
+                  contour_var="ndensity"
+  )+
+  geom_density_2d(data=dt_Ni, 
+                  aes(x=axe1, y=axe2), 
+                  breaks = c(0.05,0.5,1), # enveloppes à 95% des points et 50%
+                  colour="forestgreen",
+                  contour_var="ndensity"
+  )+
   xlim(MINX, MAXX)+
-  ylim(MINY, MAXY)
+  ylim(MINY, MAXY)+
+  labs(x="PCA Axis 1", y ="PCA Axis 2")+
+  theme_bw()+
+  theme(panel.grid = element_blank(), text = element_text(size=15),
+        panel.border = element_rect(fill= "transparent"))
+
+# # Grazing
+# ggplot() +
+#   geom_density2d(data=dt_Pa,
+#                          aes(x=axe1, 
+#                              y=axe2,
+#                              color = ..level..),
+#                   linewidth = 0.25,
+#                          breaks = c(0.05,0.5,1),
+#                          colour="purple",
+#                          contour_var="ndensity"
+#   ) +
+#   scale_colour_distiller(palette = "Purples") +
+#   xlim(MINX, MAXX)+
+#   ylim(MINY, MAXY)
+
 
 ### FIG 4
 
@@ -1251,5 +1296,91 @@ P1_Hik + P2_Hik
 # Mais il faut faire des prédictions sur un espace écologique,
 # i.e. créer toute la palette de conditions
 
+MINX
+MAXX
+MINY
+MAXY
 
 
+# Prédiction spatialisée
+predUsageMois_grid <- function(usage, mois,type_donnees){
+  # # TEST
+  # mois = "juillet"
+  # usage = "Ni"
+  # type_donnees = "ACP"
+  
+  if(!dir.exists(paste0(output_path,"/niches/",type_donnees,"/",
+                        usage,"/predictions/espace_eco/"))){
+    dir.create(paste0(output_path,"/niches/",type_donnees,"/",
+                      usage,"/predictions/espace_eco/"))
+  }
+  # Créer une grille de valeurs des axes d'ACP
+  df.env.grid = data.frame(axe1_toutes =  seq(from = MINX, to = MAXX, length.out = 500), 
+                           axe2_toutes =seq(from = MINY, to = MAXY, length.out = 500))
+  df.env.grid = df.env.grid %>% expand(axe1_toutes, axe2_toutes)
+  # Appeler modèle
+  load(paste0(output_path,"/niches/",type_donnees,"/", usage,"/modele_glm.rdata"))
+  # Prédire sur cette grille
+  prob_grid <- predict(model.glm, df.env.grid, type="prob")
+  # Retourner probabilité prédiction présence
+  prob_grid = cbind(df.env.grid, prob_pres = prob_grid$presence)
+  names(prob_grid) = c("axe1","axe2","pred_presence")
+  return(prob_grid)
+}
+
+grid_Ni = predUsageMois_grid("Ni","juillet","ACP")
+grid_Pa = predUsageMois_grid("Pa","juillet","ACP")
+grid_Rp = predUsageMois_grid("Rp","juillet","ACP")
+
+
+
+A = ggplot() + 
+  geom_point(data=grid_Ni, aes(x=axe1,y=axe2,col=pred_presence)) +
+  labs(title="Nesting",y="Environmental axe 2",x="Environmental axe 1",col="Probability")
+
+B = ggplot() + 
+  geom_point(data=dt_Ni_p, aes(x=axe1,y=axe2,col=pred_presence)) +
+  labs(title="Nesting",y="Environmental axe 2",x="Environmental axe 1",col="Probability")
+B2 = ggplot() + 
+  geom_point(data=dt_Pa_p, aes(x=axe1,y=axe2,col=pred_presence)) +
+  labs(title="Grazing",y="Environmental axe 2",x="Environmental axe 1",col="Probability")
+B3 = ggplot() + 
+  geom_point(data=dt_Rp_p, aes(x=axe1,y=axe2,col=pred_presence)) +
+  labs(title="Hiking",y="Environmental axe 2",x="Environmental axe 1",col="Probability")
+
+A + B
+
+A2 = ggplot() + 
+  geom_point(data=grid_Pa, aes(x=axe1,y=axe2,col=pred_presence)) +
+  labs(title="Grazing",y="Environmental axe 2",x="Environmental axe 1",col="Probability")
+A3 = ggplot() + 
+  geom_point(data=grid_Rp, aes(x=axe1,y=axe2,col=pred_presence)) +
+  labs(title="Hiking",y="Environmental axe 2",x="Environmental axe 1",col="Probability")
+A / A2 / A3
+B / B2 / B3
+
+
+# Proba = f(environnement)
+P1_Nes = ggplot() + 
+  geom_point(data=grid_Ni, aes(x=axe1,y=pred_presence)) +
+  labs(title="Nesting",y="Probability of presence",x="Environmental axe 1")
+P2_Nes = ggplot() + 
+  geom_point(data=grid_Ni, aes(x=axe2,y=pred_presence)) +
+  labs(y="Probability of presence",x="Environmental axe 2")
+
+P1_Gra = ggplot() + 
+  geom_point(data=grid_Pa, aes(x=axe1,y=pred_presence)) +
+  labs(title="Grazing",y="Probability of presence",x="Environmental axe 1")
+P2_Gra = ggplot() + 
+  geom_point(data=grid_Pa, aes(x=axe2,y=pred_presence)) +
+  labs(y="Probability of presence",x="Environmental axe 2")
+
+P1_Hik = ggplot() + 
+  geom_point(data=grid_Rp, aes(x=axe1,y=pred_presence)) +
+  labs(title="Hiking",y="Probability of presence",x="Environmental axe 1")
+P2_Hik = ggplot() + 
+  geom_point(data=grid_Ni, aes(x=axe2,y=pred_presence)) +
+  labs(y="Probability of presence",x="Environmental axe 2")
+P1_Nes + P2_Nes
+P1_Gra + P2_Gra
+P1_Hik + P2_Hik
