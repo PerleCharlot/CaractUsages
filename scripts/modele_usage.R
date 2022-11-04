@@ -24,6 +24,7 @@ library(factoextra)
 library(ggtext)
 library(glue)
 library(exactextractr)
+library(patchwork)
 ### Fonctions -------------------------------------
 
 # Fonction qui encode des colonnes d'un df en factoriel, si leur nature
@@ -810,6 +811,32 @@ EspEco <- function(usage, type_donnees, liste_mois, espace){
   }
 }
 
+# Fonction pour créer des prédiction dans une grille de conditions envs
+predUsageMois_grid <- function(usage, mois,type_donnees){
+  # # TEST
+  # mois = "juillet"
+  # usage = "Ni"
+  # type_donnees = "ACP"
+  
+  if(!dir.exists(paste0(output_path,"/niches/",type_donnees,"/",
+                        usage,"/predictions/espace_eco/"))){
+    dir.create(paste0(output_path,"/niches/",type_donnees,"/",
+                      usage,"/predictions/espace_eco/"))
+  }
+  # Créer une grille de valeurs des axes d'ACP
+  df.env.grid = data.frame(axe1_toutes =  seq(from = MINX, to = MAXX, length.out = 500), 
+                           axe2_toutes =seq(from = MINY, to = MAXY, length.out = 500))
+  df.env.grid = df.env.grid %>% expand(axe1_toutes, axe2_toutes)
+  # Appeler modèle
+  load(paste0(output_path,"/niches/",type_donnees,"/", usage,"/modele_glm.rdata"))
+  # Prédire sur cette grille
+  prob_grid <- predict(model.glm, df.env.grid, type="prob")
+  # Retourner probabilité prédiction présence
+  prob_grid = cbind(df.env.grid, prob_pres = prob_grid$presence)
+  names(prob_grid) = c("axe1","axe2","pred_presence")
+  return(prob_grid)
+}
+
 ### Constantes -------------------------------------
 
 # Espace de travail
@@ -950,90 +977,89 @@ EspEco(usage="Pa",type_donnees = "brute",liste_mois=liste.mois,espace="dimension
 
 EspEco(usage=c("Pa","Rp","Ni"),type_donnees = "ACP",liste_mois= "juillet", espace="dimension")
 
-#### FIGURE 3 POSTER ####
 
-# Load uses rasters
-files = list.files(paste0(output_path,"par_periode/juillet/"),".tif$" ,full.names = T)
-r_uses = stack(files[grep(c("nidification|paturage|randonnee_pedestre"),files)])
-# Load ACP axes = environment rasters
-r_env = stack(list.files(paste0(gitCaractMilieu,"/output/ACP/toutes/07juillet/"),"stack",full.names=T))
-names(r_env) = paste0("axe",1:3)
-# Stack uses + env
-r_uses_env = stack(r_uses, r_env)
-# Transform in dt
-dt_uses_env = data.table(as.data.frame(r_uses_env))
-dt_uses_env = cbind(dt_uses_env,coordinates(r_uses_env))
+# # Load uses rasters
+# files = list.files(paste0(output_path,"par_periode/juillet/"),".tif$" ,full.names = T)
+# r_uses = stack(files[grep(c("nidification|paturage|randonnee_pedestre"),files)])
+# # Load ACP axes = environment rasters
+# r_env = stack(list.files(paste0(gitCaractMilieu,"/output/ACP/toutes/07juillet/"),"stack",full.names=T))
+# names(r_env) = paste0("axe",1:3)
+# # Stack uses + env
+# r_uses_env = stack(r_uses, r_env)
+# # Transform in dt
+# dt_uses_env = data.table(as.data.frame(r_uses_env))
+# dt_uses_env = cbind(dt_uses_env,coordinates(r_uses_env))
+# 
+# ##### Densité des conditions environnementales + densités Usages #####
+# dt_env = data.table(as.data.frame(r_env))
+# dt_env = na.omit(dt_env)
+# MINX = min(dt_env$axe1)
+# MAXX = max(dt_env$axe1)
+# MINY=  min(dt_env$axe2)
+# MAXY = max(dt_env$axe2)
+# # Remove NA and all absences
+# dt_uses_env = na.omit(dt_uses_env)
+# index = which(dt_uses_env$nidification == 0 & dt_uses_env$paturage == 0 & dt_uses_env$randonnee_pedestre ==0)
+# dt_uses_env = dt_uses_env[-index,]
 
-##### Densité des conditions environnementales + densités Usages #####
-dt_env = data.table(as.data.frame(r_env))
-dt_env = na.omit(dt_env)
-MINX = min(dt_env$axe1)
-MAXX = max(dt_env$axe1)
-MINY=  min(dt_env$axe2)
-MAXY = max(dt_env$axe2)
-# Remove NA and all absences
-dt_uses_env = na.omit(dt_uses_env)
-index = which(dt_uses_env$nidification == 0 & dt_uses_env$paturage == 0 & dt_uses_env$randonnee_pedestre ==0)
-dt_uses_env = dt_uses_env[-index,]
+# # Option 1 : distinction par forme et couleur
+# dt_uses_env2 = dt_uses_env %>% pivot_longer(cols= c("paturage","randonnee_pedestre","nidification"),
+#                                             names_to ="usage",
+#                                             values_to = "presence")
+# # filtrer les présences
+# dt_uses_env3 = dt_uses_env2[!dt_uses_env2$presence == 0,]
+# dt_Ni = dt_uses_env3 %>% subset(usage == "nidification")
+# dt_Pa = dt_uses_env3 %>% subset(usage == "paturage")
+# dt_Rp = dt_uses_env3 %>% subset(usage == "randonnee_pedestre")
+# 
+# # conditions env en fond + les 3 usages en densité -> difficile à lire
+# ggplot() +
+#   geom_density_2d_filled(data=dt_env, aes(x = axe1, y = axe2),alpha = 0.4) +
+#   geom_density_2d(data=dt_Ni, aes(x=axe1, y=axe2),
+#                   colour="darkgreen",
+#                   contour_var="ndensity")+
+#   geom_density_2d(data=dt_Rp, aes(x=axe1, y=axe2),
+#                   colour="blue",
+#                   contour_var="ndensity")+
+#   geom_density_2d(data=dt_Pa, aes(x=axe1, y=axe2),
+#                   colour="red",
+#                   contour_var="ndensity")+
+#   xlim(MINX, MAXX)+
+#   ylim(MINY, MAXY)
 
-# Option 1 : distinction par forme et couleur
-dt_uses_env2 = dt_uses_env %>% pivot_longer(cols= c("paturage","randonnee_pedestre","nidification"),
-                                            names_to ="usage",
-                                            values_to = "presence")
-# filtrer les présences
-dt_uses_env3 = dt_uses_env2[!dt_uses_env2$presence == 0,]
-dt_Ni = dt_uses_env3 %>% subset(usage == "nidification")
-dt_Pa = dt_uses_env3 %>% subset(usage == "paturage")
-dt_Rp = dt_uses_env3 %>% subset(usage == "randonnee_pedestre")
-
-# conditions env en fond + les 3 usages en densité -> difficile à lire
-ggplot() +
-  geom_density_2d_filled(data=dt_env, aes(x = axe1, y = axe2),alpha = 0.4) +
-  geom_density_2d(data=dt_Ni, aes(x=axe1, y=axe2),
-                  colour="darkgreen",
-                  contour_var="ndensity")+
-  geom_density_2d(data=dt_Rp, aes(x=axe1, y=axe2),
-                  colour="blue",
-                  contour_var="ndensity")+
-  geom_density_2d(data=dt_Pa, aes(x=axe1, y=axe2),
-                  colour="red",
-                  contour_var="ndensity")+
-  xlim(MINX, MAXX)+
-  ylim(MINY, MAXY)
-
-# env + Ni + Rp
-ggplot() +
-  geom_density_2d_filled(data=dt_env, aes(x = axe1, y = axe2),alpha = 0.4) +
-  geom_density_2d(data=dt_Ni, aes(x=axe1, y=axe2),
-                  colour="darkgreen",
-                  contour_var="ndensity")+
-  geom_density_2d(data=dt_Rp, aes(x=axe1, y=axe2),
-                  colour="blue",
-                  contour_var="ndensity")+
-  xlim(MINX, MAXX)+
-  ylim(MINY, MAXY)
-# env + Pa + Rp
-ggplot() +
-  geom_density_2d_filled(data=dt_env, aes(x = axe1, y = axe2),alpha = 0.4) +
-  geom_density_2d(data=dt_Pa, aes(x=axe1, y=axe2),
-                  colour="red",
-                  contour_var="ndensity")+
-  geom_density_2d(data=dt_Rp, aes(x=axe1, y=axe2),
-                  colour="blue",
-                  contour_var="ndensity")+
-  xlim(MINX, MAXX)+
-  ylim(MINY, MAXY)
-# env + Pa + Ni
-ggplot() +
-  geom_density_2d_filled(data=dt_env, aes(x = axe1, y = axe2),alpha = 0.4) +
-  geom_density_2d(data=dt_Pa, aes(x=axe1, y=axe2),
-                  colour="red",
-                  contour_var="ndensity")+
-  geom_density_2d(data=dt_Ni, aes(x=axe1, y=axe2),
-                  colour="darkgreen",
-                  contour_var="ndensity")+
-  xlim(MINX, MAXX)+
-  ylim(MINY, MAXY)
+# # env + Ni + Rp
+# ggplot() +
+#   geom_density_2d_filled(data=dt_env, aes(x = axe1, y = axe2),alpha = 0.4) +
+#   geom_density_2d(data=dt_Ni, aes(x=axe1, y=axe2),
+#                   colour="darkgreen",
+#                   contour_var="ndensity")+
+#   geom_density_2d(data=dt_Rp, aes(x=axe1, y=axe2),
+#                   colour="blue",
+#                   contour_var="ndensity")+
+#   xlim(MINX, MAXX)+
+#   ylim(MINY, MAXY)
+# # env + Pa + Rp
+# ggplot() +
+#   geom_density_2d_filled(data=dt_env, aes(x = axe1, y = axe2),alpha = 0.4) +
+#   geom_density_2d(data=dt_Pa, aes(x=axe1, y=axe2),
+#                   colour="red",
+#                   contour_var="ndensity")+
+#   geom_density_2d(data=dt_Rp, aes(x=axe1, y=axe2),
+#                   colour="blue",
+#                   contour_var="ndensity")+
+#   xlim(MINX, MAXX)+
+#   ylim(MINY, MAXY)
+# # env + Pa + Ni
+# ggplot() +
+#   geom_density_2d_filled(data=dt_env, aes(x = axe1, y = axe2),alpha = 0.4) +
+#   geom_density_2d(data=dt_Pa, aes(x=axe1, y=axe2),
+#                   colour="red",
+#                   contour_var="ndensity")+
+#   geom_density_2d(data=dt_Ni, aes(x=axe1, y=axe2),
+#                   colour="darkgreen",
+#                   contour_var="ndensity")+
+#   xlim(MINX, MAXX)+
+  # ylim(MINY, MAXY)
 
 # # hexagone + couleur viridis rpz densité
 # ggplot() +
@@ -1145,7 +1171,7 @@ ggplot() +
 #   geom_density_2d()
 
 
-#### FIGURE 4 POSTER ####
+#### Préparation des données pour figures ####
 
 # Load prediction uses rasters
 files = list.files(paste0(output_path,"/niches/ACP/"),".tif$" ,full.names = T,recursive=T)
@@ -1188,8 +1214,17 @@ MAXX = max(dt_env$axe1)
 MINY=  min(dt_env$axe2)
 MAXY = max(dt_env$axe2)
 
-### FIG 3
+# Run modèles sur grille conditions envs
+grid_Ni = predUsageMois_grid("Ni","juillet","ACP")
+grid_Pa = predUsageMois_grid("Pa","juillet","ACP")
+grid_Rp = predUsageMois_grid("Rp","juillet","ACP")
 
+
+stockNi = grid_Ni
+stockPa = grid_Pa
+stockRp = grid_Rp
+
+##### FIGURE 3 POSTER ####
 
 # #CE QUI NE MARCHE PAS
 # scale_fill_gradient(low = "white", high = "black")
@@ -1249,138 +1284,278 @@ ggplot() +
 #   xlim(MINX, MAXX)+
 #   ylim(MINY, MAXY)
 
+##### FIGURE 4 POSTER ####
 
-### FIG 4
-
-# conditions env en fond + les 3 usages en densité -> difficile à lire
-ggplot() +
-  geom_density_2d_filled(data=dt_env, aes(x = axe1, y = axe2),alpha = 0.4) +
-  geom_point(data=dt_Ni_p, aes(x=axe1, y=axe2, col=pred_presence))+
-  xlim(MINX, MAXX)+
-  ylim(MINY, MAXY)
-
-# Proba = f(environnement)
-P1_Nes = ggplot() + 
+# Proba = f(environnement effectif) axe 1 ou axe2
+# NESTING
+Proba_axe1_Nes_env_reel = ggplot() + 
   geom_point(data=dt_Ni_p, aes(x=axe1,y=pred_presence)) +
-  labs(title="Nesting",y="Probability of presence",x="Environmental axe 1")
-P2_Nes = ggplot() + 
+  labs(title="Nesting - Observed Environmental Conditions",
+       y="Probability of presence",x="Environmental axe 1")
+Proba_axe2_Nes_env_reel = ggplot() + 
   geom_point(data=dt_Ni_p, aes(x=axe2,y=pred_presence)) +
   labs(y="Probability of presence",x="Environmental axe 2")
-
-
-ggplot() + 
-  geom_density_2d(data=dt_Ni_p, aes(x=axe1,y=axe2, col=pred_presence))
-
-P1_Gra = ggplot() + 
-  geom_point(data=dt_Pa_p, aes(x=axe1,y=pred_presence)) +
-  labs(title="Grazing",y="Probability of presence",x="Environmental axe 1")
-P2_Gra = ggplot() + 
-  geom_point(data=dt_Pa_p, aes(x=axe2,y=pred_presence)) +
-  labs(y="Probability of presence",x="Environmental axe 2")
-
-P1_Hik = ggplot() + 
-  geom_point(data=dt_Rp_p, aes(x=axe1,y=pred_presence)) +
-  labs(title="Hiking",y="Probability of presence",x="Environmental axe 1")
-P2_Hik = ggplot() + 
-  geom_point(data=dt_Ni_p, aes(x=axe2,y=pred_presence)) +
-  labs(y="Probability of presence",x="Environmental axe 2")
-
-library(patchwork)
-distrib_pred_along_axes
-P1_Nes + P2_Nes
-P1_Gra + P2_Gra
-P1_Hik + P2_Hik
-
-
-# Ici, ce sont les prédictions dans l'espace géographiques
-# Mais il faut faire des prédictions sur un espace écologique,
-# i.e. créer toute la palette de conditions
-
-MINX
-MAXX
-MINY
-MAXY
-
-
-# Prédiction spatialisée
-predUsageMois_grid <- function(usage, mois,type_donnees){
-  # # TEST
-  # mois = "juillet"
-  # usage = "Ni"
-  # type_donnees = "ACP"
-  
-  if(!dir.exists(paste0(output_path,"/niches/",type_donnees,"/",
-                        usage,"/predictions/espace_eco/"))){
-    dir.create(paste0(output_path,"/niches/",type_donnees,"/",
-                      usage,"/predictions/espace_eco/"))
-  }
-  # Créer une grille de valeurs des axes d'ACP
-  df.env.grid = data.frame(axe1_toutes =  seq(from = MINX, to = MAXX, length.out = 500), 
-                           axe2_toutes =seq(from = MINY, to = MAXY, length.out = 500))
-  df.env.grid = df.env.grid %>% expand(axe1_toutes, axe2_toutes)
-  # Appeler modèle
-  load(paste0(output_path,"/niches/",type_donnees,"/", usage,"/modele_glm.rdata"))
-  # Prédire sur cette grille
-  prob_grid <- predict(model.glm, df.env.grid, type="prob")
-  # Retourner probabilité prédiction présence
-  prob_grid = cbind(df.env.grid, prob_pres = prob_grid$presence)
-  names(prob_grid) = c("axe1","axe2","pred_presence")
-  return(prob_grid)
-}
-
-grid_Ni = predUsageMois_grid("Ni","juillet","ACP")
-grid_Pa = predUsageMois_grid("Pa","juillet","ACP")
-grid_Rp = predUsageMois_grid("Rp","juillet","ACP")
-
-
-
-A = ggplot() + 
-  geom_point(data=grid_Ni, aes(x=axe1,y=axe2,col=pred_presence)) +
-  labs(title="Nesting",y="Environmental axe 2",x="Environmental axe 1",col="Probability")
-
-B = ggplot() + 
-  geom_point(data=dt_Ni_p, aes(x=axe1,y=axe2,col=pred_presence)) +
-  labs(title="Nesting",y="Environmental axe 2",x="Environmental axe 1",col="Probability")
-B2 = ggplot() + 
-  geom_point(data=dt_Pa_p, aes(x=axe1,y=axe2,col=pred_presence)) +
-  labs(title="Grazing",y="Environmental axe 2",x="Environmental axe 1",col="Probability")
-B3 = ggplot() + 
-  geom_point(data=dt_Rp_p, aes(x=axe1,y=axe2,col=pred_presence)) +
-  labs(title="Hiking",y="Environmental axe 2",x="Environmental axe 1",col="Probability")
-
-A + B
-
-A2 = ggplot() + 
-  geom_point(data=grid_Pa, aes(x=axe1,y=axe2,col=pred_presence)) +
-  labs(title="Grazing",y="Environmental axe 2",x="Environmental axe 1",col="Probability")
-A3 = ggplot() + 
-  geom_point(data=grid_Rp, aes(x=axe1,y=axe2,col=pred_presence)) +
-  labs(title="Hiking",y="Environmental axe 2",x="Environmental axe 1",col="Probability")
-A / A2 / A3
-B / B2 / B3
-
-
-# Proba = f(environnement)
-P1_Nes = ggplot() + 
+Proba_axe1_Nes_env_simu = ggplot() + 
   geom_point(data=grid_Ni, aes(x=axe1,y=pred_presence)) +
-  labs(title="Nesting",y="Probability of presence",x="Environmental axe 1")
-P2_Nes = ggplot() + 
+  labs(title="Nesting - Simulated Environmental Conditions",
+       y="Probability of presence",x="Environmental axe 1")
+Proba_axe2_Nes_env_simu = ggplot() + 
   geom_point(data=grid_Ni, aes(x=axe2,y=pred_presence)) +
   labs(y="Probability of presence",x="Environmental axe 2")
 
-P1_Gra = ggplot() + 
+(Proba_axe1_Nes_env_reel + Proba_axe2_Nes_env_reel)/(Proba_axe1_Nes_env_simu + Proba_axe2_Nes_env_simu)
+
+# GRAZING
+Proba_axe1_Gra_env_reel = ggplot() + 
+  geom_point(data=dt_Pa_p, aes(x=axe1,y=pred_presence)) +
+  labs(title="Grazing - Observed Environmental Conditions",
+       y="Probability of presence",x="Environmental axe 1")
+Proba_axe2_Gra_env_reel = ggplot() + 
+  geom_point(data=dt_Pa_p, aes(x=axe2,y=pred_presence)) +
+  labs(y="Probability of presence",x="Environmental axe 2")
+Proba_axe1_Gra_env_simu = ggplot() + 
   geom_point(data=grid_Pa, aes(x=axe1,y=pred_presence)) +
-  labs(title="Grazing",y="Probability of presence",x="Environmental axe 1")
-P2_Gra = ggplot() + 
+  labs(title="Grazing - Simulated Environmental Conditions",
+       y="Probability of presence",x="Environmental axe 1")
+Proba_axe2_Gra_env_simu = ggplot() + 
   geom_point(data=grid_Pa, aes(x=axe2,y=pred_presence)) +
   labs(y="Probability of presence",x="Environmental axe 2")
 
-P1_Hik = ggplot() + 
+(Proba_axe1_Gra_env_reel + Proba_axe2_Gra_env_reel)/(Proba_axe1_Gra_env_simu + Proba_axe2_Gra_env_simu)
+
+# HIKING
+Proba_axe1_Hik_env_reel = ggplot() + 
+  geom_point(data=dt_Rp_p, aes(x=axe1,y=pred_presence)) +
+  labs(title="Hiking - Observed Environmental Conditions",
+       y="Probability of presence",x="Environmental axe 1")
+Proba_axe2_Hik_env_reel = ggplot() + 
+  geom_point(data=dt_Ni_p, aes(x=axe2,y=pred_presence)) +
+  labs(y="Probability of presence",x="Environmental axe 2")
+Proba_axe1_Hik_env_simu = ggplot() + 
   geom_point(data=grid_Rp, aes(x=axe1,y=pred_presence)) +
-  labs(title="Hiking",y="Probability of presence",x="Environmental axe 1")
-P2_Hik = ggplot() + 
+  labs(title="Hiking - Simulated Environmental Conditions",
+       y="Probability of presence",x="Environmental axe 1")
+Proba_axe2_Hik_env_simu = ggplot() + 
   geom_point(data=grid_Ni, aes(x=axe2,y=pred_presence)) +
   labs(y="Probability of presence",x="Environmental axe 2")
-P1_Nes + P2_Nes
-P1_Gra + P2_Gra
-P1_Hik + P2_Hik
+
+(Proba_axe1_Hik_env_reel + Proba_axe2_Hik_env_reel)/(Proba_axe1_Hik_env_simu + Proba_axe2_Hik_env_simu)
+
+# Axe 2 = f(Axe1) en probabilités
+# NESTING
+Proba_axes1_2_Nes_env_simu =  ggplot() + 
+  geom_point(data=grid_Ni, aes(x=axe1,y=axe2,col=pred_presence)) +
+  labs(title="Nesting - Simulated Environmental Conditions",
+       y="Environmental axe 2",x="Environmental axe 1",col="Probability")
+Proba_axes1_2_Nes_env_reel = ggplot() + 
+  geom_point(data=dt_Ni_p, aes(x=axe1,y=axe2,col=pred_presence)) +
+  labs(title="Nesting - Observed Environmental Conditions",
+       y="Environmental axe 2",x="Environmental axe 1",col="Probability")
+# GRAZING
+Proba_axes1_2_Gra_env_simu = ggplot() + 
+  geom_point(data=dt_Pa_p, aes(x=axe1,y=axe2,col=pred_presence)) +
+  labs(title="Grazing - Simulated Environmental Conditions",
+       y="Environmental axe 2",x="Environmental axe 1",col="Probability")
+Proba_axes1_2_Gra_env_reel = ggplot() + 
+  geom_point(data=grid_Pa, aes(x=axe1,y=axe2,col=pred_presence)) +
+  labs(title="Grazing - Observed Environmental Conditions",
+       y="Environmental axe 2",x="Environmental axe 1",col="Probability")
+# HIKING
+Proba_axes1_2_Hik_env_simu = ggplot() + 
+  geom_point(data=grid_Rp, aes(x=axe1,y=axe2,col=pred_presence)) +
+  labs(title="Hiking - Simulated Environmental Conditions",
+       y="Environmental axe 2",x="Environmental axe 1",col="Probability")
+Proba_axes1_2_Hik_env_reel = ggplot() +
+  geom_point(data=dt_Rp_p, aes(x=axe1,y=axe2,col=pred_presence)) +
+  labs(title="Hiking - Observed Environmental Conditions",
+       y="Environmental axe 2",x="Environmental axe 1",col="Probability")
+
+# Objectif : mettre des seuils sur les probas pour faire apparaître des niches
+
+ggplot(grid_Ni) +
+  aes(x=axe1, y=axe2, z=pred_presence, fill= pred_presence) +
+  geom_tile() +
+  stat_contour(color="white", size=0.55, bins=2) +
+  labs(title="Nesting",
+       y="Environmental axe 2",x="Environmental axe 1")  +
+  xlim(MINX, MAXX)+
+  ylim(MINY, MAXY)
+
+# Garder seulement enveloppe niche
+
+# ggplot() +
+#   stat_contour_filled(data=grid_Pa,
+#                       aes(x=axe1, y=axe2, z=pred_presence),
+#                       color="firebrick", size=0.55, bins=2,
+#                       alpha=0.4)+
+#   scale_fill_manual(values=c("transparent","firebrick"))+
+#   xlim(MINX, MAXX)+
+#   ylim(MINY, MAXY)
+
+ggplot() +
+  stat_contour_filled(data=grid_Rp,
+                      aes(x=axe1, y=axe2, z=pred_presence),
+                      color="darkblue", size=0.55, bins=2,
+                      show.legend =F,
+                      alpha=0.4)+
+  scale_fill_manual(values=c("transparent","darkblue"))+
+  xlim(MINX, MAXX)+
+  ylim(MINY, MAXY) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(), text = element_blank(),
+           panel.border = element_rect(fill= "transparent"))
+
+ggplot() +
+  stat_contour_filled(data=grid_Pa,
+                      aes(x=axe1, y=axe2, z=pred_presence),
+                      color="firebrick", size=0.55, bins=2,
+                      show.legend =F,
+                      alpha=0.4)+
+  scale_fill_manual(values=c("transparent","firebrick"))+
+  xlim(MINX, MAXX)+
+  ylim(MINY, MAXY) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(), text = element_text(size=15),
+        panel.border = element_rect(fill= "transparent")) +
+  labs(y="Environmental axe 2",x="Environmental axe 1")
+
+ggplot() +
+  stat_contour_filled(data=grid_Ni,
+                      aes(x=axe1, y=axe2, z=pred_presence),
+                      color="forestgreen", size=0.55, bins=2,
+                      show.legend =F,
+                      alpha=0.4)+
+  scale_fill_manual(values=c("transparent","forestgreen"))+
+  xlim(MINX, MAXX)+
+  ylim(MINY, MAXY) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(), text = element_text(size=15),
+        panel.border = element_rect(fill= "transparent")) +
+  labs(y="Environmental axe 2",x="Environmental axe 1")
+
+# Maintenant il faut réussir à superposer ces 3 plots ...
+
+A = stat_contour(data=grid_Rp,
+             aes(x=axe1, y=axe2, z=pred_presence),
+             color="darkblue", size=0.55, bins=2)
+A$stat
+
+ggplot() +
+  geom_point(data=dt_Rp_p, aes(x=axe1,y=axe2), alpha=0.4, col="grey")+
+  stat_contour(data=grid_Rp,
+               aes(x=axe1, y=axe2, z=pred_presence),
+               color="darkblue", size=0.55, bins=2)+
+  stat_contour(data=grid_Pa,
+               aes(x=axe1, y=axe2, z=pred_presence),
+               color="firebrick", size=0.55, bins=2)+
+  stat_contour(data=grid_Ni,
+               aes(x=axe1, y=axe2, z=pred_presence),
+               color="forestgreen", size=0.55, bins=2)+
+  labs(title="Ecological Niche of Uses",
+       y="Environmental axe 2",x="Environmental axe 1")  +
+  xlim(MINX, MAXX)+
+  ylim(MINY, MAXY)
+
+# Mettre en fond la disponibilité du milieu
+
+background = ggplot() +
+  #geom_point(data=dt_Rp_p, aes(x=axe1,y=axe2), alpha=0.4, col="grey") +
+  labs(y="Environmental axe 2",x="Environmental axe 1")+
+  xlim(MINX, MAXX)+
+  ylim(MINY, MAXY)+
+  theme_minimal() +
+  theme(panel.grid = element_blank(), text = element_text(size=15),
+        panel.border = element_rect(fill= "transparent"))
+
+
+
+plot_Hik = ggplot() +
+  geom_point(data=dt_Rp_p, aes(x=axe1,y=axe2), alpha=0.4, col="grey") +
+  stat_contour_filled(data=grid_Rp,
+                      aes(x=axe1, y=axe2, z=pred_presence),
+                      color="darkblue", size=0.55, bins=2,
+                      show.legend =F,
+                      alpha=0.4)+
+  scale_fill_manual(values=c("transparent","darkblue"))+
+  xlim(MINX, MAXX)+
+  ylim(MINY, MAXY) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(), text = element_blank(),
+        panel.border = element_blank())
+plot_Gra = ggplot() +
+  geom_point(data=dt_Rp_p, aes(x=axe1,y=axe2), alpha=0.4, col="grey") +
+  stat_contour_filled(data=grid_Pa,
+                      aes(x=axe1, y=axe2, z=pred_presence),
+                      color="firebrick", size=0.55, bins=2,
+                      show.legend =F,
+                      alpha=0.4)+
+  scale_fill_manual(values=c("transparent","firebrick"))+
+  xlim(MINX, MAXX)+
+  ylim(MINY, MAXY) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(), text = element_blank(),
+        panel.border = element_blank())
+plot_Nes = ggplot() +
+  geom_point(data=dt_Rp_p, aes(x=axe1,y=axe2), alpha=0.4, col="grey") +
+  stat_contour_filled(data=grid_Ni,
+                      aes(x=axe1, y=axe2, z=pred_presence),
+                      color="forestgreen", size=0.55, bins=2,
+                      show.legend =F,
+                      alpha=0.4)+
+  scale_fill_manual(values=c("transparent","forestgreen"))+
+  xlim(MINX, MAXX)+
+  ylim(MINY, MAXY) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(), text = element_blank(),
+        panel.border = element_blank())
+
+png(file=paste0(output_path ,"/fig4_gra.png"), 
+    width=1400, height=800)
+plot_Gra
+dev.off()
+png(file=paste0(output_path ,"/fig4_nes.png"), 
+    width=1400, height=800)
+plot_Nes
+dev.off()
+
+png(file=paste0(output_path ,"/fig4_background.png"), 
+    width=1400, height=800)
+background
+dev.off()
+
+# essayer avec les pivot_longer de tout faire rentrer dans un graph ?
+
+
+##### FIGURE 4 POSTER : OVERLAP ####
+
+# Seuil de chaque usage (milieu de l'intervalle de valeurs, max(proba)/2)
+# ex : les proba de Ni sont comprises entre 0 et 0.5, 
+# donc le seuil est 0.5/2 = 0.25
+
+grid_Ni$pred_seuil =  ifelse(grid_Ni$pred_presence >= 0.25,1,0)
+grid_Pa$pred_seuil =  ifelse(grid_Pa$pred_presence >= 0.25,1,0)
+grid_Rp$pred_seuil =  ifelse(grid_Rp$pred_presence >= 0.135,1,0)
+# Transformation en raster
+r_Ni = rasterFromXYZ(data.frame(x = grid_Ni$axe1, y=grid_Ni$axe2, nesting=grid_Ni$pred_seuil))
+r_Pa = rasterFromXYZ(data.frame(x= grid_Pa$axe1, y= grid_Pa$axe2, grazing= grid_Pa$pred_seuil))
+r_Rp = rasterFromXYZ(data.frame(x=grid_Rp$axe1, y=grid_Rp$axe2, hiking=grid_Rp$pred_seuil))
+
+r_uses = stack(r_Ni, r_Pa, r_Rp)
+r_uses$sum = sum(r_uses)
+
+plot(r_uses)
+
+dt_niche_uses = data.table(as.data.frame(r_uses))
+sum(dt_niche_uses$nesting) # 13 502
+sum(dt_niche_uses$hiking) # 111 139
+sum(dt_niche_uses$grazing) # 33 641
+dt_niche_uses$combi <- paste0(dt_niche_uses$nesting,"_",dt_niche_uses$hiking,"_" ,dt_niche_uses$grazing)
+# Nesting - Hiking - Grazing 
+# 1_0_1 = Nesting + Grazing   -> 47
+# 1_1_0 = Nesting + Hiking      -> 8627
+# 0_1_1 = Hiking + Grazing    -> 26669
+# 1_1_1 = les trois           -> 3936
+# 0_0_1 -> 2989
+# 0_1_0 -> 71907
+# 1_0_0  -> 892
+table(dt_niche_uses$combi)
