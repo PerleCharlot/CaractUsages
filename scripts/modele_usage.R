@@ -919,6 +919,21 @@ lapply(liste.usages, function(x) CreateModelUsage(nom_court_usage=x,type_donnees
 
 lapply(c("Rp","Pa"), function(x) CreateModelUsage(nom_court_usage=x,type_donnees = "ACP"))
 
+
+
+# Diagnostic validité modèles
+niche_path <- paste0(output_path,"/niches/")
+#type_donnees = "brute"
+type_donnees = "ACP"
+load(file = paste0(niche_path, type_donnees,"/Ni/modele_glm.rdata"))
+summary(model.glm)
+m = model.glm$finalModel
+#Check residuals of model
+scatter.smooth(fitted(m), resid(m)); abline(h=0, lty=2)
+plot(density(resid(m, type='pearson')))
+
+hist(residuals(m, type = "pearson"))
+plot(m)
 #### GLM spatial #####
 # #https://cran.r-project.org/web/packages/glmmfields/vignettes/spatial-glms.html
 # m_spatial <- glmmfields(Co ~ axe1_CA + axe2_CA + axe3_CA +
@@ -1526,7 +1541,8 @@ dev.off()
 # essayer avec les pivot_longer de tout faire rentrer dans un graph ?
 
 
-##### FIGURE 4 POSTER : OVERLAP ####
+##### OVERLAP ####
+# Entre niches écologiques fondamentales
 
 # Seuil de chaque usage (milieu de l'intervalle de valeurs, max(proba)/2)
 # ex : les proba de Ni sont comprises entre 0 et 0.5, 
@@ -1559,3 +1575,23 @@ dt_niche_uses$combi <- paste0(dt_niche_uses$nesting,"_",dt_niche_uses$hiking,"_"
 # 0_1_0 -> 71907
 # 1_0_0  -> 892
 table(dt_niche_uses$combi)
+
+# Entre espaces géographiques (en juillet)
+dt_uses_env$obs_Pa =  ifelse(dt_uses_env$obs_Pa >0,1,0)
+dt_uses_env$obs_Ni =  ifelse(dt_uses_env$obs_Ni >0,1,0)
+dt_uses_env$obs_Rp =  ifelse(dt_uses_env$obs_Rp >0,1,0)
+
+sum(dt_uses_env$obs_Ni) # 4728
+sum(dt_uses_env$obs_Rp) # 6243
+table(dt_uses_env$obs_Pa) # 6573
+
+dt_uses_env$combi <- paste0(dt_uses_env$obs_Ni,"_",dt_uses_env$obs_Rp,"_" ,dt_uses_env$obs_Pa)
+table(dt_uses_env$combi)
+# Nesting - Hiking - Grazing 
+# 1_0_1 = Nesting + Grazing   -> 1783
+# 1_1_0 = Nesting + Hiking      -> 532
+# 0_1_1 = Hiking + Grazing    -> 799
+# 1_1_1 = les trois           -> 299 
+# 0_0_1 -> 3692
+# 0_1_0 -> 4613
+# 1_0_0  -> 2114
