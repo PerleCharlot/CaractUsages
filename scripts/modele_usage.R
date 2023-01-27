@@ -2,7 +2,7 @@
 # Nom : Modélisation des usages
 # Auteure : Perle Charlot
 # Date de création : 09-09-2022
-# Dates de modification : 03-11-2022
+# Dates de modification : 27-01-2023
 
 ### Librairies -------------------------------------
 library(glmmfields)
@@ -25,6 +25,7 @@ library(ggtext)
 library(glue)
 library(exactextractr)
 library(patchwork)
+library(metR)
 ### Fonctions -------------------------------------
 
 # Fonction qui encode des colonnes d'un df en factoriel, si leur nature
@@ -910,14 +911,14 @@ lapply(c("nidification",
          "parade"),function(x) ExtractData1Use(usage=x, type_donnees = "axes_FAMD"))
 
 
-ExtractData1Use(c())
-
-
 # Exploitation des données : création modèle
 set.seed(1)
 lapply(liste.usages, function(x) CreateModelUsage(nom_court_usage=x,type_donnees = "brute"))
 
 lapply(c("Rp","Pa"), function(x) CreateModelUsage(nom_court_usage=x,type_donnees = "ACP"))
+
+lapply(liste.usages, function(x) CreateModelUsage(nom_court_usage=x,type_donnees = "ACP"))
+
 
 
 
@@ -1188,56 +1189,128 @@ EspEco(usage=c("Pa","Rp","Ni"),type_donnees = "ACP",liste_mois= "juillet", espac
 
 #### Préparation des données pour figures ####
 
-# Load prediction uses rasters
-files = list.files(paste0(output_path,"/niches/ACP/"),".tif$" ,full.names = T,recursive=T)
-r_uses = stack(files[grep("juillet",files)])
-names(r_uses) = c(paste0(c("obs","pred"),"_","Ni"),
-  paste0(c("obs","pred"),"_","Pa"),
-  paste0(c("obs","pred"),"_","Rp"))
+NichePlot <- function(usage,mois,model){
+  # TEST
+  # usage = "Ni"
+  # mois = "juillet"
+  # model = "ACP_avec_ponderation" #nom du dossier à choisir dans
+  
+  cat(paste0("Usage ",usage, " en cours, pour le mois de ",mois," - ",model,"\n"))
+  
+  # Load prediction uses rasters
+  files = list.files(paste0(output_path,"/niches/",model,"/",usage),".tif$" ,
+                     full.names = T,recursive=T)
+  r_uses = stack(files[grep(mois,files)])
+  names(r_uses) = c(paste0(c("obs","pred"),"_",usage))
+  # Load ACP axes = environment rasters
+  files = list.files(paste0(gitCaractMilieu,"/output/ACP/",model,"/"),
+                           "stack",full.names=T,recursive=T)
+  r_env = stack(files[grep(mois,files)])
+  names(r_env) = paste0("axe",1:3)
+  # Stack uses + env
+  r_uses_env = stack(r_uses, projectRaster(r_env,r_uses))
+  # Transform in dt
+  dt_uses_env = data.table(as.data.frame(r_uses_env))
+  dt_uses_env = cbind(dt_uses_env,coordinates(r_uses_env))
+  dt_uses_env = na.omit(dt_uses_env)
+  # Transform dt pour rendre interprétable pour ggplot
+  dt_uses_env2 = dt_uses_env %>% pivot_longer(cols= paste0(c("obs_"),usage),
+                                              names_to ="obs_usage",
+                                              values_to = "obs_presence") %>%
+    pivot_longer(cols= paste0(c("pred_"),usage),
+                 names_to ="pred_usage",
+                 values_to = "pred_presence")
+  # filtrer les présences pour les observations
+  dt_uses_env3 = dt_uses_env2[!dt_uses_env2$obs_presence == 0,]
+  dt_usage = dt_uses_env3 %>% subset(obs_usage == paste0(c("obs_"),usage)) #dt_Ni
+  # filtrer les prédictions
+  dt_usage_p = dt_uses_env2 %>% subset(pred_usage == paste0(c("pred_"),usage)) # dt_Ni_p
+  # Créer valeurs pour fond environnemental
+  dt_env = data.table(as.data.frame(r_env))
+  dt_env = na.omit(dt_env)
+  MINX = min(dt_env$axe1)
+  MAXX = max(dt_env$axe1)
+  MINY=  min(dt_env$axe2)
+  MAXY = max(dt_env$axe2)
+  # Run modèles sur grille conditions envs
+  grid_usage = predUsageMois_grid(usage,mois,model) #grid_Ni
+  # Plot
+  if(!dir.exists(paste0(output_path,"/niches/",model,"/",usage,"/predictions/espace_eco"))){
+    dir.create(paste0(output_path,"/niches/",model,"/",usage,"/predictions/espace_eco"),recursive=T)
+  }
+  
+  Pnicheproba = ggplot(grid_usage) +
+    aes(x=axe1, y=axe2, z=pred_presence, fill= pred_presence) +
+    geom_tile() +
+    stat_contour(color="black", size=0.55, bins=2) +
+    geom_text_contour(aes(z = round(pred_presence,1)),bins=2, stroke=0.2,size=8) +
+    xlim(MINX, MAXX)+
+    ylim(MINY, MAXY) +
+    scale_fill_gradient2(midpoint=0.5,
+                         limits=c(0,1))+
+    labs(title=usage, fill ="Probability of\noccurrence",
+         y="Environmental axe 2",x="Environmental axe 1")+
+    theme(text = element_text(size=20))
+  
+  png(file=
+        paste0(output_path,"/niches/",model,"/",usage,"/predictions/espace_eco/niche_proba_",mois,".png"), 
+      width=1400, height=800)
+  plot(Pnicheproba)
+  dev.off()
+  
+  Pnicheenvlp = ggplot() +
+    stat_contour_filled(data=grid_usage,
+                        aes(x=axe1, y=axe2, z=pred_presence),
+                        color="black",
+                        size=0.55, bins=2,
+                        show.legend =F,
+                        alpha=0.4)+
+    scale_fill_manual(values=c("transparent","grey"))+
+    xlim(MINX, MAXX)+
+    ylim(MINY, MAXY) +
+    theme_minimal() +
+    theme(panel.grid = element_blank(), text = element_text(size=15),
+          panel.border = element_rect(fill= "transparent")) +
+    labs(y="Environmental axe 2",x="Environmental axe 1")
+  
+  png(file=
+        paste0(output_path,"/niches/",model,"/",usage,"/predictions/espace_eco/niche_contour_",mois,".png"), 
+      width=1400, height=800)
+  plot(Pnicheenvlp)
+  dev.off()
+ }
 
-# Load ACP axes = environment rasters
-r_env = stack(list.files(paste0(gitCaractMilieu,"/output/ACP/toutes/07juillet/"),"stack",full.names=T))
-names(r_env) = paste0("axe",1:3)
-# Stack uses + env
-r_uses_env = stack(r_uses, projectRaster(r_env,r_uses))
-# Transform in dt
-dt_uses_env = data.table(as.data.frame(r_uses_env))
-dt_uses_env = cbind(dt_uses_env,coordinates(r_uses_env))
-dt_uses_env = na.omit(dt_uses_env)
+
+NichePlot("Ni","juin","ACP_avec_ponderation")
+lapply(liste.usages, function(x) NichePlot(x,"juillet","ACP_avec_ponderation"))
+
+
+# TODO : inclure test pour vérifier si usage présent au mois donné,
+# si non, faire terminer la fonction
+
+# TODO : trouver comme map2 mais avec deux listes de tailles variables
+mapply(function(x,y) NichePlot(x,y,"ACP_avec_ponderation"),
+       list("Ni","Rp"), 
+       list("juin","aout"))
+
+
+for(temps in liste.mois){
+  lapply(liste.usages, function(x) NichePlot(x,temps,"ACP_avec_ponderation"))
+}
+
+# bien que le modèle ne soit pas mensuel,
+# les axes de l'ACP le sont,
+# donc les niches cnonstruites sur ces axes sont aussi mensuelles
+# Pour régler ça, il faudrait faire une ACP globale à travers les mois
+
 # Transform dt pour rendre interprétable pour ggplot
-dt_uses_env2 = dt_uses_env %>% pivot_longer(cols= c("obs_Ni","obs_Pa","obs_Rp"),
+dt_uses_env2 = dt_uses_env %>% pivot_longer(cols= c("obs_Co","obs_Ni","obs_Pa","obs_Rp","obs_Vt"),
                                             names_to ="obs_usage",
                                             values_to = "obs_presence") %>%
-  pivot_longer(cols= c("pred_Ni","pred_Pa","pred_Rp"),
+  pivot_longer(cols= c("pred_Co","pred_Ni","pred_Pa","pred_Rp","pred_Vt"),
                names_to ="pred_usage",
                values_to = "pred_presence")
-  
-# filtrer les présences pour les observations
-dt_uses_env3 = dt_uses_env2[!dt_uses_env2$obs_presence == 0,]
-dt_Ni = dt_uses_env3 %>% subset(obs_usage == "obs_Ni")
-dt_Pa = dt_uses_env3 %>% subset(obs_usage == "obs_Pa")
-dt_Rp = dt_uses_env3 %>% subset(obs_usage == "obs_Rp")
-# filtrer les prédictions
-dt_Ni_p = dt_uses_env2 %>% subset(pred_usage == "pred_Ni")
-dt_Pa_p = dt_uses_env2 %>% subset(pred_usage == "pred_Pa")
-dt_Rp_p = dt_uses_env2 %>% subset(pred_usage == "pred_Rp")
-# Créer valeurs pour fond environnemental
-dt_env = data.table(as.data.frame(r_env))
-dt_env = na.omit(dt_env)
-MINX = min(dt_env$axe1)
-MAXX = max(dt_env$axe1)
-MINY=  min(dt_env$axe2)
-MAXY = max(dt_env$axe2)
 
-# Run modèles sur grille conditions envs
-grid_Ni = predUsageMois_grid("Ni","juillet","ACP")
-grid_Pa = predUsageMois_grid("Pa","juillet","ACP")
-grid_Rp = predUsageMois_grid("Rp","juillet","ACP")
-
-
-stockNi = grid_Ni
-stockPa = grid_Pa
-stockRp = grid_Rp
 
 ##### FIGURE 3 POSTER ####
 
@@ -1320,120 +1393,31 @@ Proba_axe2_Nes_env_simu = ggplot() +
 
 (Proba_axe1_Nes_env_reel + Proba_axe2_Nes_env_reel)/(Proba_axe1_Nes_env_simu + Proba_axe2_Nes_env_simu)
 
-# GRAZING
-Proba_axe1_Gra_env_reel = ggplot() + 
-  geom_point(data=dt_Pa_p, aes(x=axe1,y=pred_presence)) +
-  labs(title="Grazing - Observed Environmental Conditions",
-       y="Probability of presence",x="Environmental axe 1")
-Proba_axe2_Gra_env_reel = ggplot() + 
-  geom_point(data=dt_Pa_p, aes(x=axe2,y=pred_presence)) +
-  labs(y="Probability of presence",x="Environmental axe 2")
-Proba_axe1_Gra_env_simu = ggplot() + 
-  geom_point(data=grid_Pa, aes(x=axe1,y=pred_presence)) +
-  labs(title="Grazing - Simulated Environmental Conditions",
-       y="Probability of presence",x="Environmental axe 1")
-Proba_axe2_Gra_env_simu = ggplot() + 
-  geom_point(data=grid_Pa, aes(x=axe2,y=pred_presence)) +
-  labs(y="Probability of presence",x="Environmental axe 2")
-
-(Proba_axe1_Gra_env_reel + Proba_axe2_Gra_env_reel)/(Proba_axe1_Gra_env_simu + Proba_axe2_Gra_env_simu)
-
-# HIKING
-Proba_axe1_Hik_env_reel = ggplot() + 
-  geom_point(data=dt_Rp_p, aes(x=axe1,y=pred_presence)) +
-  labs(title="Hiking - Observed Environmental Conditions",
-       y="Probability of presence",x="Environmental axe 1")
-Proba_axe2_Hik_env_reel = ggplot() + 
-  geom_point(data=dt_Ni_p, aes(x=axe2,y=pred_presence)) +
-  labs(y="Probability of presence",x="Environmental axe 2")
-Proba_axe1_Hik_env_simu = ggplot() + 
-  geom_point(data=grid_Rp, aes(x=axe1,y=pred_presence)) +
-  labs(title="Hiking - Simulated Environmental Conditions",
-       y="Probability of presence",x="Environmental axe 1")
-Proba_axe2_Hik_env_simu = ggplot() + 
-  geom_point(data=grid_Ni, aes(x=axe2,y=pred_presence)) +
-  labs(y="Probability of presence",x="Environmental axe 2")
-
-(Proba_axe1_Hik_env_reel + Proba_axe2_Hik_env_reel)/(Proba_axe1_Hik_env_simu + Proba_axe2_Hik_env_simu)
-
 # Axe 2 = f(Axe1) en probabilités
 # NESTING
-Proba_axes1_2_Nes_env_simu =  ggplot() + 
-  geom_point(data=grid_Ni, aes(x=axe1,y=axe2,col=pred_presence)) +
-  labs(title="Nesting - Simulated Environmental Conditions",
-       y="Environmental axe 2",x="Environmental axe 1",col="Probability")
 Proba_axes1_2_Nes_env_reel = ggplot() + 
   geom_point(data=dt_Ni_p, aes(x=axe1,y=axe2,col=pred_presence)) +
   labs(title="Nesting - Observed Environmental Conditions",
        y="Environmental axe 2",x="Environmental axe 1",col="Probability")
-# GRAZING
-Proba_axes1_2_Gra_env_simu = ggplot() + 
-  geom_point(data=dt_Pa_p, aes(x=axe1,y=axe2,col=pred_presence)) +
-  labs(title="Grazing - Simulated Environmental Conditions",
-       y="Environmental axe 2",x="Environmental axe 1",col="Probability")
-Proba_axes1_2_Gra_env_reel = ggplot() + 
-  geom_point(data=grid_Pa, aes(x=axe1,y=axe2,col=pred_presence)) +
-  labs(title="Grazing - Observed Environmental Conditions",
-       y="Environmental axe 2",x="Environmental axe 1",col="Probability")
-# HIKING
-Proba_axes1_2_Hik_env_simu = ggplot() + 
-  geom_point(data=grid_Rp, aes(x=axe1,y=axe2,col=pred_presence)) +
-  labs(title="Hiking - Simulated Environmental Conditions",
-       y="Environmental axe 2",x="Environmental axe 1",col="Probability")
-Proba_axes1_2_Hik_env_reel = ggplot() +
-  geom_point(data=dt_Rp_p, aes(x=axe1,y=axe2,col=pred_presence)) +
-  labs(title="Hiking - Observed Environmental Conditions",
-       y="Environmental axe 2",x="Environmental axe 1",col="Probability")
 
 # Objectif : mettre des seuils sur les probas pour faire apparaître des niches
-
 ggplot(grid_Ni) +
   aes(x=axe1, y=axe2, z=pred_presence, fill= pred_presence) +
   geom_tile() +
-  stat_contour(color="white", size=0.55, bins=2) +
-  labs(title="Nesting",
-       y="Environmental axe 2",x="Environmental axe 1")  +
+  stat_contour(color="black", size=0.55, bins=2) +
+  geom_text_contour(aes(z = round(pred_presence,1)),bins=2) +
   xlim(MINX, MAXX)+
-  ylim(MINY, MAXY)
+  ylim(MINY, MAXY) +
+  scale_fill_gradient2(midpoint=0.5,
+                       limits=c(0,1))+
+  labs(title="Nesting", fill ="Probability of\noccurrence",
+     y="Environmental axe 2",x="Environmental axe 1")
+# TODO : travailler bins, binwidth, breaks dans stat_contour
+max(grid_Ni$pred_presence)/2
+min(grid_Ni$pred_presence)
+
 
 # Garder seulement enveloppe niche
-
-# ggplot() +
-#   stat_contour_filled(data=grid_Pa,
-#                       aes(x=axe1, y=axe2, z=pred_presence),
-#                       color="firebrick", size=0.55, bins=2,
-#                       alpha=0.4)+
-#   scale_fill_manual(values=c("transparent","firebrick"))+
-#   xlim(MINX, MAXX)+
-#   ylim(MINY, MAXY)
-
-ggplot() +
-  stat_contour_filled(data=grid_Rp,
-                      aes(x=axe1, y=axe2, z=pred_presence),
-                      color="darkblue", size=0.55, bins=2,
-                      show.legend =F,
-                      alpha=0.4)+
-  scale_fill_manual(values=c("transparent","darkblue"))+
-  xlim(MINX, MAXX)+
-  ylim(MINY, MAXY) +
-  theme_minimal() +
-  theme(panel.grid = element_blank(), text = element_blank(),
-           panel.border = element_rect(fill= "transparent"))
-
-ggplot() +
-  stat_contour_filled(data=grid_Pa,
-                      aes(x=axe1, y=axe2, z=pred_presence),
-                      color="firebrick", size=0.55, bins=2,
-                      show.legend =F,
-                      alpha=0.4)+
-  scale_fill_manual(values=c("transparent","firebrick"))+
-  xlim(MINX, MAXX)+
-  ylim(MINY, MAXY) +
-  theme_minimal() +
-  theme(panel.grid = element_blank(), text = element_text(size=15),
-        panel.border = element_rect(fill= "transparent")) +
-  labs(y="Environmental axe 2",x="Environmental axe 1")
-
 ggplot() +
   stat_contour_filled(data=grid_Ni,
                       aes(x=axe1, y=axe2, z=pred_presence),
@@ -1449,12 +1433,6 @@ ggplot() +
   labs(y="Environmental axe 2",x="Environmental axe 1")
 
 # Maintenant il faut réussir à superposer ces 3 plots ...
-
-A = stat_contour(data=grid_Rp,
-             aes(x=axe1, y=axe2, z=pred_presence),
-             color="darkblue", size=0.55, bins=2)
-A$stat
-
 ggplot() +
   geom_point(data=dt_Rp_p, aes(x=axe1,y=axe2), alpha=0.4, col="grey")+
   stat_contour(data=grid_Rp,
@@ -1472,7 +1450,6 @@ ggplot() +
   ylim(MINY, MAXY)
 
 # Mettre en fond la disponibilité du milieu
-
 background = ggplot() +
   #geom_point(data=dt_Rp_p, aes(x=axe1,y=axe2), alpha=0.4, col="grey") +
   labs(y="Environmental axe 2",x="Environmental axe 1")+
@@ -1523,16 +1500,11 @@ plot_Nes = ggplot() +
   theme_minimal() +
   theme(panel.grid = element_blank(), text = element_blank(),
         panel.border = element_blank())
-
-png(file=paste0(output_path ,"/fig4_gra.png"), 
-    width=1400, height=800)
-plot_Gra
 dev.off()
 png(file=paste0(output_path ,"/fig4_nes.png"), 
     width=1400, height=800)
 plot_Nes
 dev.off()
-
 png(file=paste0(output_path ,"/fig4_background.png"), 
     width=1400, height=800)
 background
