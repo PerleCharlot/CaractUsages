@@ -2,7 +2,7 @@
 # Nom : Modélisation des usages
 # Auteure : Perle Charlot
 # Date de création : 09-09-2022
-# Dates de modification : 27-01-2023
+# Dates de modification : 30-01-2023
 
 ### Librairies -------------------------------------
 library(glmmfields)
@@ -94,17 +94,17 @@ AjustExtCRS <- function(path.raster.to.check, path.raster.ref=chemin_mnt){
 # Fonction qui sort les valeurs des var env associées à un usage donné
 ExtractData1Use <- function(usage,
                             fenetre_temporelle = liste.mois,
-                            type_donnees # "brute", "ACP", "axes_AFDM"
-){
+                            type_donnees # "brute", "ACP_AFDM"
+                                        # "ACP_avec_ponderation" "ACP_sans_ponderation"
+                            ){
   # # TEST
-  # usage = c("paturage","couchade","randonnee")
+  # usage = c("paturage")
   # fenetre_temporelle = "juillet"
-  # type_donnees = "ACP"
+  # type_donnees = "ACP_AFDM"
+  # mois = fenetre_temporelle
   
   DataUsageMois <- function(mois){
-    # # TEST
-    # mois = fenetre_temporelle[2]
-    
+
     # Raster de l'usage considéré
     raster.usage.mois.path = list.files(paste0(wd,"/output/par_periode/",mois),
                                         pattern= paste0(usage,".tif$"),
@@ -113,27 +113,18 @@ ExtractData1Use <- function(usage,
       raster.usage.mois = terra::rast(raster.usage.mois.path)
       
       # Rasters environnement : sur le mois considéré
-      if(type_donnees == "ACP"){
-        all.tif = list.files(paste0(gitCaractMilieu,"/output/ACP/toutes/"), 
-                             pattern = ".tif",recursive = T,full.names = T)
+      if(type_donnees != "brute"){
+        all.tif = list.files(paste0(gitCaractMilieu,"/output/ACP/",type_donnees,"/"), 
+                             pattern = ".tif$",recursive = T,full.names = T)
         all.tif = all.tif[grep(mois,all.tif)]
         all.tif = all.tif[grep("axe",all.tif)]
       }
-      if(type_donnees == "axes_AFDM"){
-        all.tif = list.files(paste0(gitCaractMilieu,"/output/ACP/"), 
-                             pattern = ".tif",recursive = T,full.names = T)
-        all.tif = all.tif[grep(mois,all.tif)]
-        # Retirer dossiers : toutes, ACP_FAMD, CA/sans_ACP_clim
-        all.tif = all.tif[!grepl("toutes",all.tif)]
-        all.tif = all.tif[!grepl("ACP_FAMD",all.tif)]
-        all.tif = all.tif[!grepl("CA/sans_ACP_clim",all.tif)]
-        all.tif = all.tif[grep("axe",all.tif)]
-      } 
       if(type_donnees == "brute"){
         all.tif = list.files(paste0(gitCaractMilieu,"/output/stack_dim/"),
                              pattern = ".tif$",recursive = T,full.names = T)
         all.tif = all.tif[grep(mois,all.tif)]
       }
+      
       # Sauvegarder table des valeurs des rasters par mois
       if(!dir.exists(paste0(input_path,"/vars_env/",type_donnees,"/",mois))){
         dir.create(paste0(input_path,"/vars_env/",type_donnees,"/",mois),recursive=T)
@@ -165,7 +156,7 @@ ExtractData1Use <- function(usage,
       if(length(FILS) == 0){
         df.env = as.data.frame(as.data.table(stack.env[]))
         # Rendre noms variables propres
-        if(type_donnees == "ACP" | type_donnees == "axes_FAMD"){
+        if(type_donnees != "brute"){
           # Remove nom mois dans colonnes
           to.modif = names(df.env)[grep(mois,names(df.env))]
           new.names = unlist(lapply(to.modif, function(x) substring(x,1,nchar(x) - nchar(mois) - 1)))
@@ -189,7 +180,7 @@ ExtractData1Use <- function(usage,
       df.crds <- terra::crds(stack.env.usage,df=TRUE)
       df.env.usage = cbind(df.env.usage,df.crds)
       # Arranger les noms, again
-      if(type_donnees == "ACP"| type_donnees == "axes_FAMD"){
+      if(type_donnees != "brute"){
         # Remove nom mois dans colonnes
         to.modif = names(df.env.usage)[grep(mois,names(df.env.usage))]
         new.names = unlist(lapply(to.modif, function(x) substring(x,1,nchar(x) - nchar(mois) - 1)))
@@ -212,11 +203,13 @@ ExtractData1Use <- function(usage,
 }
 
 # Crée un ENM (pour 1 usage donné), puis prédit tous les mois
-CreateModelUsage <- function(nom_court_usage, type_donnees){
+CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
   
-  # # TEST
-  # nom_court_usage = "Ni"
-  # type_donnees = "ACP" # "ACP" "axes_AFDM" "brute"
+  # TEST
+  nom_court_usage = "Ni"
+  type_donnees = "ACP_avec_ponderation"
+  ## "ACP_avec_ponderation" "ACP_sans_ponderation" "ACP_AFDM" "brute"
+  fit = "2_axes"
   
   
   if(!dir.exists(paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage))){
@@ -237,12 +230,10 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
   data_glm$usage <- fct_recode(data_glm$usage,
              "presence" = "1", 
              "absence" = "0")
-  str(data_glm)
+  #str(data_glm)
   
   # Visualisation distribution le long des variables environnementales
   if(type_donnees == "brute"){
-
-    
     # Nécessité de scale les données, sinon les valeurs extrêmes rendent le plot illisible
     data_glm_scaled = as.data.frame(scale(data_glm[,2:dim(data_glm)[2]]))
     data_glm_scaled = cbind(usage = data_glm$usage, data_glm_scaled)
@@ -279,7 +270,8 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
       scale_colour_discrete(name = nom_beau, labels = c("Absence", "Présence"))+
       theme(text = element_text(size=14), axis.text.y = element_text(colour = rev(b2)))
   }
-  if(type_donnees == "axes_AFDM" | type_donnees == "ACP"){
+
+  if(type_donnees != "brute"){
     plot =  data_glm %>% subset(select=-c(x,y) ) %>%
       pivot_longer(!usage, names_to = "variables", values_to = "valeurs") %>%
       ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
@@ -321,39 +313,52 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
     savePredictions=TRUE)
   
   # Fit
-  if(type_donnees == "brute" | type_donnees == "axes_AFDM"){
-    
-    # model.glm <- glm(usage ~ ., family=binomial, data=train, 
-    #                  weights = w.vect)
-    # model.glm <- stepAIC(model.glm)
-    
-    train <- susbset(train, select=-c("x","y"))
-    
-    # GLM
-    model.glm <- caret::train(usage ~ .,
-                              train,
-                              method = "glm",
-                              family = "binomial",
-                              trControl = fitControl,
-                              metric = 'ROC',
-                              weights = w.vect)
-  }
-  if(type_donnees == "ACP"){
+  train <- subset(train, select=-c(x,y))
+  if(fit == "2_axes"){
+    # (ACP_avec et sans pondération)
+    # on ne garde que les 2 premiers axes auxquels on ajoute 
+    # un terme d'interaction
+    # et des termes quadratiques
     
     # Formule
     formula.usage = as.formula(usage ~ axe1_toutes + axe2_toutes + 
                                  I(axe1_toutes^2)+ I(axe2_toutes^2) + #termes quadratiques
                                  axe1_toutes*axe2_toutes)
+  }
+  if(fit == "all_simple"){
+    # (brute ou axes_AFDM)
+    # on garde toutes les variables, sans termes quadratiques
+    # ni terme d'interaction entre vars
+    
+    # Formule
+    formula.usage = as.formula(usage ~ .)
+  }
+  
+  # GLM
+  model.glm <- caret::train(formula.usage,
+                            train,
+                            method = "glm",
+                            family = "binomial",
+                            trControl = fitControl,
+                            #trainControl(method="cv", number = 5, verboseIter = T, classProbs = T)
+                            metric = 'ROC',
+                            weights = w.vect)
+  summary(model.glm)
+  
+  # RF
+  model.rf <- caret::train(formula.usage,
+                               train,
+                               method = "ranger",
+                               trControl = fitControl,
+                               metric= 'ROC',
+                               weights = w.vect)
 
-    # GLM
-    model.glm <- caret::train(formula.usage,
-                             train,
-                             method = "glm",
-                             family = "binomial",
-                             trControl = fitControl,
-                             metric = 'ROC',
-                             weights = w.vect)
-      
+  summary(model.rf)
+  
+  # TODO : tester manuelle si ça marche (RF)
+  # vachement long
+  # TODO : regarder comment comparer modèle GLm / RF
+  
     #densityplot(model.glm, pch = "|")
     # # estimate of the uncertainty in our accuracy estimate
     # model.glm$results
@@ -361,28 +366,20 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
     # summary(model.glm$finalModel)
     # model.glm.f <- model.glm$finalModel
     
-    # TODO : inclure RF + comparaison modèle
-    # # RF
-    # model.rf <- caret::train(formula.usage,
-    #                              train,
-    #                              method = "ranger",
-    #                              trControl = fitControl,
-    #                              metric= 'ROC',
-    #                              weights = w.vect)
-    # 
-    # # Comparaison entre modèles
-    # resamps <- resamples(list(RF = model.rf,
-    #                           GLM = model.glm))
-    # summary(resamps)
-    # trellis.par.set(caretTheme())
-    # dotplot(resamps, metric = "ROC")
-    
-
-  }
+  # TODO : inclure RF + comparaison modèle
+  # Comparaison entre modèles
+  resamps <- resamples(list(RF = model.rf,
+                              GLM = model.glm))
+  summary(resamps)
+  trellis.par.set(caretTheme())
+  dotplot(resamps, metric = "ROC")
 
   # Enregistrer le modèle pour pouvoir ensuite echo = F
   save(model.glm, file = paste0(output_path,"/niches/",type_donnees,
                                      "/",nom_court_usage,"/modele_glm.rdata"))
+  # Enregistrer le modèle pour pouvoir ensuite echo = F
+  save(model.rf, file = paste0(output_path,"/niches/",type_donnees,
+                                "/",nom_court_usage,"/modele_rf.rdata"))
   
   # Find best threshold
   probs <- seq(.1, 0.9, by = 0.02)
@@ -492,6 +489,8 @@ CreateModelUsage <- function(nom_court_usage, type_donnees){
   lapply(liste.mois, predUsageMois)
 }
 
+# TODO : implémenter RF et GAM ?
+
 # Fonction qui retourne des graphiques présentant la distribution 
 # des usages (en densité de présence ou proba) dans un espace écologique
 # (soit sur une AFDM d'une dimension, soit sur ACP de toutes les dimensions),
@@ -500,7 +499,7 @@ EspEco <- function(usage, type_donnees, liste_mois, espace){
   # TEST
   liste_mois = "juillet" # Mois considéré (ou autre fenêtre temporelle)
   usage =c("Rp","Ni","Pa") # Nom court de l'usage considéré, ex "Ni"
-  type_donnees = "ACP" # "brute" ou "ACP" ou "axes_AFDM", relatif aux 
+  type_donnees = "ACP" # "brute" ou "ACP_avec ou sans ponderation" ou "ACP_AFDM", relatif aux 
   # variables utilisées pour construire les niches d'usages
   espace = 'dimension' # "global" ou "dimension", relatif à la
   # projection dans un espace global ou par dimension
@@ -838,6 +837,106 @@ predUsageMois_grid <- function(usage, mois,type_donnees){
   return(prob_grid)
 }
 
+# fonction qui sort les graphiques des niches d'usages
+NichePlot <- function(usage,mois,model){
+  # TEST
+  # usage = "Lk"
+  # mois = "aout"
+  # model = "ACP_avec_ponderation" # "ACP_AFDM" ou "ACP_avec_ponderation" ou 
+  # # "ACP_sans_ponderation" ou "brute"
+  
+  # Load prediction uses rasters
+  files = list.files(paste0(output_path,"/niches/",model,"/",usage),".tif$" ,
+                     full.names = T,recursive=T)
+  
+  t = try(stack(files[grep(mois,files)]))
+  
+  if(inherits(t, "try-error")) {
+    cat(paste0("Usage ",usage, " n'est pas présent au mois de " ,mois,".\n"))
+  } else{
+    cat(paste0("Usage ",usage, " en cours, pour le mois de ",mois," - ",model,"\n"))
+    
+    r_uses = stack(files[grep(mois,files)])
+    names(r_uses) = c(paste0(c("obs","pred"),"_",usage))
+    # Load ACP axes = environment rasters
+    files = list.files(paste0(gitCaractMilieu,"/output/ACP/",model,"/"),
+                       "stack",full.names=T,recursive=T)
+    r_env = stack(files[grep(mois,files)])
+    names(r_env) = paste0("axe",1:3)
+    # Stack uses + env
+    r_uses_env = stack(r_uses, projectRaster(r_env,r_uses))
+    # Transform in dt
+    dt_uses_env = data.table(as.data.frame(r_uses_env))
+    dt_uses_env = cbind(dt_uses_env,coordinates(r_uses_env))
+    dt_uses_env = na.omit(dt_uses_env)
+    # Transform dt pour rendre interprétable pour ggplot
+    dt_uses_env2 = dt_uses_env %>% pivot_longer(cols= paste0(c("obs_"),usage),
+                                                names_to ="obs_usage",
+                                                values_to = "obs_presence") %>%
+      pivot_longer(cols= paste0(c("pred_"),usage),
+                   names_to ="pred_usage",
+                   values_to = "pred_presence")
+    # filtrer les présences pour les observations
+    dt_uses_env3 = dt_uses_env2[!dt_uses_env2$obs_presence == 0,]
+    dt_usage = dt_uses_env3 %>% subset(obs_usage == paste0(c("obs_"),usage)) #dt_Ni
+    # filtrer les prédictions
+    dt_usage_p = dt_uses_env2 %>% subset(pred_usage == paste0(c("pred_"),usage)) # dt_Ni_p
+    # Créer valeurs pour fond environnemental
+    dt_env = data.table(as.data.frame(r_env))
+    dt_env = na.omit(dt_env)
+    MINX = min(dt_env$axe1)
+    MAXX = max(dt_env$axe1)
+    MINY=  min(dt_env$axe2)
+    MAXY = max(dt_env$axe2)
+    # Run modèles sur grille conditions envs
+    grid_usage = predUsageMois_grid(usage,mois,model) #grid_Ni
+    # Plot
+    if(!dir.exists(paste0(output_path,"/niches/",model,"/",usage,"/predictions/espace_eco"))){
+      dir.create(paste0(output_path,"/niches/",model,"/",usage,"/predictions/espace_eco"),recursive=T)
+    }
+    
+    Pnicheproba = ggplot(grid_usage) +
+      aes(x=axe1, y=axe2, z=pred_presence, fill= pred_presence) +
+      geom_tile() +
+      stat_contour(color="black", size=0.55, bins=2) +
+      geom_text_contour(aes(z = round(pred_presence,1)),bins=2, stroke=0.2,size=8) +
+      xlim(MINX, MAXX)+
+      ylim(MINY, MAXY) +
+      scale_fill_gradient2(midpoint=0.5,
+                           limits=c(0,1))+
+      labs(title=usage, fill ="Probability of\noccurrence",
+           y="Environmental axe 2",x="Environmental axe 1")+
+      theme(text = element_text(size=20))
+    
+    png(file=
+          paste0(output_path,"/niches/",model,"/",usage,"/predictions/espace_eco/niche_proba_",mois,".png"), 
+        width=1400, height=800)
+    plot(Pnicheproba)
+    dev.off()
+    
+    Pnicheenvlp = ggplot() +
+      stat_contour_filled(data=grid_usage,
+                          aes(x=axe1, y=axe2, z=pred_presence),
+                          color="black",
+                          size=0.55, bins=2,
+                          show.legend =F,
+                          alpha=0.4)+
+      scale_fill_manual(values=c("transparent","grey"))+
+      xlim(MINX, MAXX)+
+      ylim(MINY, MAXY) +
+      theme_minimal() +
+      theme(panel.grid = element_blank(), text = element_text(size=15),
+            panel.border = element_rect(fill= "transparent")) +
+      labs(y="Environmental axe 2",x="Environmental axe 1")
+    
+    png(file=
+          paste0(output_path,"/niches/",model,"/",usage,"/predictions/espace_eco/niche_contour_",mois,".png"), 
+        width=1400, height=800)
+    plot(Pnicheenvlp)
+    dev.off()
+  }
+}
+
 ### Constantes -------------------------------------
 
 # Espace de travail
@@ -886,38 +985,60 @@ col_vars_formate =  col_vars %>%
   transmute(ID=Nom, nature=Nature)
 
 #### GLM : binomiale ####
-# axes des AFDM par dimension
 
-# Création d'un df par usage : utilisation fonction ExtractData1Use
-lapply(c("nidification",
-         "couchade",
-         "paturage",
-         "randonnee_pedestre",
-         "VTT",
-         "parade"),function(x) ExtractData1Use(usage=x, type_donnees = "brute"))
+# 1 - Création d'un df par usage (utilisation fonction ExtractData1Use)
+#     selon le type de prédicteurs environnement utilisé (les variables brutes,
+#     les 17 axes des AFDM par dimension, les 2 axes d'une ACP globale pondérée 
+#     par dimension ou non)
+for(type.de.donnees in c("brute","ACP_AFDM","ACP_sans_ponderation","ACP_avec_ponderation")){
+  lapply(c("nidification",
+           "couchade",
+           "paturage",
+           "randonnee_pedestre",
+           "VTT",
+           "parade"),function(x) ExtractData1Use(usage=x, type_donnees = type.de.donnees))
+}
+# # Exemple pour un seul type de prédicteurs
+# lapply(c("nidification",
+#          "couchade",
+#          "paturage",
+#          "randonnee_pedestre",
+#          "VTT",
+#          "parade"),function(x) ExtractData1Use(usage=x, type_donnees = "ACP_sans_ponderation"))
 
-lapply(c("nidification",
-         "couchade",
-         "paturage",
-         "randonnee_pedestre",
-         "VTT",
-         "parade"),function(x) ExtractData1Use(usage=x, type_donnees = "ACP"))
-
-lapply(c("nidification",
-         "couchade",
-         "paturage",
-         "randonnee_pedestre",
-         "VTT",
-         "parade"),function(x) ExtractData1Use(usage=x, type_donnees = "axes_FAMD"))
-
-
-# Exploitation des données : création modèle
+# 2 - Exploitation des données : création modèle (pour l'instant, GLM)
+#     selon le type de prédicteurs environnement utilisé (les variables brutes,
+#     les 17 axes des AFDM par dimension, les 2 axes d'une ACP globale pondérée 
+#     par dimension ou non)
 set.seed(1)
-lapply(liste.usages, function(x) CreateModelUsage(nom_court_usage=x,type_donnees = "brute"))
+for(type.de.donnees in c("brute","ACP_AFDM",
+                         "ACP_sans_ponderation","ACP_avec_ponderation")){
+  lapply(liste.usages, 
+         function(x) CreateModelUsage(nom_court_usage=x,
+                                      type_donnees = type.de.donnees))
+}
 
-lapply(c("Rp","Pa"), function(x) CreateModelUsage(nom_court_usage=x,type_donnees = "ACP"))
+# 3 - Visualisation des niches écologiques des usages
+for(temps in liste.mois){
+  lapply(liste.usages, function(x) NichePlot(x,temps,"ACP_avec_ponderation"))
+}
+# Rq : pour modèle basé sur axes ACP :
+# bien que le modèle ne soit pas mensuel,
+# les axes de l'ACP le sont,
+# donc les niches cnonstruites sur ces axes sont aussi mensuelles
+# Pour régler ça, il faudrait faire une ACP globale à travers les mois
 
-lapply(liste.usages, function(x) CreateModelUsage(nom_court_usage=x,type_donnees = "ACP"))
+
+# 3 bis - Visualisation dans l'espace écologique (quand > 2 axes)
+lapply(liste.usages, function(x) EspEco(usage = x, 
+                                        liste_mois = liste.mois,
+                                        type_donnees = "brute",
+                                        espace="global"))
+
+EspEco(usage=c("Pa","Rp","Ni"),type_donnees = "ACP",liste_mois= "juillet", espace="dimension")
+
+
+
 
 
 
@@ -935,6 +1056,7 @@ plot(density(resid(m, type='pearson')))
 
 hist(residuals(m, type = "pearson"))
 plot(m)
+
 #### GLM spatial #####
 # #https://cran.r-project.org/web/packages/glmmfields/vignettes/spatial-glms.html
 # m_spatial <- glmmfields(Co ~ axe1_CA + axe2_CA + axe3_CA +
@@ -965,34 +1087,6 @@ plot(m)
 # 
 
 #### Visualisation espace ACP ####
-
-# Tests de la fonction :
- # - pour 1 usage, pour un mois --> OK
-EspEco(usage="Rp",type_donnees = "brute",liste_mois="juillet",espace="global")
- # - pour 1 usage, sur une liste de mois-->OK
-EspEco(usage="Rp",type_donnees = "brute",liste_mois=liste.mois,espace="global")
- # - pour tous les usages, sur une liste de mois --> OK
-lapply(liste.usages, function(x) EspEco(usage = x, 
-                                        liste_mois = liste.mois,
-                                           type_donnees = "brute",
-                                           espace="global"))
- # - pour un multi-usage, sur un mois --> OK
-EspEco(usage=c("Pa","Vt","Ni"),type_donnees = "brute",liste_mois="juillet",espace="dimension")
-
- # - pour un multi-usage, sur une liste de mois 
-# --> ne marche pas quand un des 3 pas présents sur un mois
-EspEco(usage=c("Pa","Vt","Ni"),type_donnees = "brute",liste_mois=liste.mois,espace="dimension")
-
-
-# pour 1 usage, sur un mois, en dimension --> OK
-EspEco(usage="Rp",type_donnees = "brute",liste_mois= "juillet",espace="dimension")
-
- # pour 1 usage, sur une liste de mois, en dimension --> OK
-EspEco(usage="Pa",type_donnees = "brute",liste_mois=liste.mois,espace="dimension")
-
-
-EspEco(usage=c("Pa","Rp","Ni"),type_donnees = "ACP",liste_mois= "juillet", espace="dimension")
-
 
 # # Load uses rasters
 # files = list.files(paste0(output_path,"par_periode/juillet/"),".tif$" ,full.names = T)
@@ -1187,190 +1281,66 @@ EspEco(usage=c("Pa","Rp","Ni"),type_donnees = "ACP",liste_mois= "juillet", espac
 #   geom_density_2d()
 
 
-#### Préparation des données pour figures ####
 
-NichePlot <- function(usage,mois,model){
-  # TEST
-  # usage = "Ni"
-  # mois = "juillet"
-  # model = "ACP_avec_ponderation" #nom du dossier à choisir dans
-  
-  cat(paste0("Usage ",usage, " en cours, pour le mois de ",mois," - ",model,"\n"))
-  
-  # Load prediction uses rasters
-  files = list.files(paste0(output_path,"/niches/",model,"/",usage),".tif$" ,
-                     full.names = T,recursive=T)
-  r_uses = stack(files[grep(mois,files)])
-  names(r_uses) = c(paste0(c("obs","pred"),"_",usage))
-  # Load ACP axes = environment rasters
-  files = list.files(paste0(gitCaractMilieu,"/output/ACP/",model,"/"),
-                           "stack",full.names=T,recursive=T)
-  r_env = stack(files[grep(mois,files)])
-  names(r_env) = paste0("axe",1:3)
-  # Stack uses + env
-  r_uses_env = stack(r_uses, projectRaster(r_env,r_uses))
-  # Transform in dt
-  dt_uses_env = data.table(as.data.frame(r_uses_env))
-  dt_uses_env = cbind(dt_uses_env,coordinates(r_uses_env))
-  dt_uses_env = na.omit(dt_uses_env)
-  # Transform dt pour rendre interprétable pour ggplot
-  dt_uses_env2 = dt_uses_env %>% pivot_longer(cols= paste0(c("obs_"),usage),
-                                              names_to ="obs_usage",
-                                              values_to = "obs_presence") %>%
-    pivot_longer(cols= paste0(c("pred_"),usage),
-                 names_to ="pred_usage",
-                 values_to = "pred_presence")
-  # filtrer les présences pour les observations
-  dt_uses_env3 = dt_uses_env2[!dt_uses_env2$obs_presence == 0,]
-  dt_usage = dt_uses_env3 %>% subset(obs_usage == paste0(c("obs_"),usage)) #dt_Ni
-  # filtrer les prédictions
-  dt_usage_p = dt_uses_env2 %>% subset(pred_usage == paste0(c("pred_"),usage)) # dt_Ni_p
-  # Créer valeurs pour fond environnemental
-  dt_env = data.table(as.data.frame(r_env))
-  dt_env = na.omit(dt_env)
-  MINX = min(dt_env$axe1)
-  MAXX = max(dt_env$axe1)
-  MINY=  min(dt_env$axe2)
-  MAXY = max(dt_env$axe2)
-  # Run modèles sur grille conditions envs
-  grid_usage = predUsageMois_grid(usage,mois,model) #grid_Ni
-  # Plot
-  if(!dir.exists(paste0(output_path,"/niches/",model,"/",usage,"/predictions/espace_eco"))){
-    dir.create(paste0(output_path,"/niches/",model,"/",usage,"/predictions/espace_eco"),recursive=T)
-  }
-  
-  Pnicheproba = ggplot(grid_usage) +
-    aes(x=axe1, y=axe2, z=pred_presence, fill= pred_presence) +
-    geom_tile() +
-    stat_contour(color="black", size=0.55, bins=2) +
-    geom_text_contour(aes(z = round(pred_presence,1)),bins=2, stroke=0.2,size=8) +
-    xlim(MINX, MAXX)+
-    ylim(MINY, MAXY) +
-    scale_fill_gradient2(midpoint=0.5,
-                         limits=c(0,1))+
-    labs(title=usage, fill ="Probability of\noccurrence",
-         y="Environmental axe 2",x="Environmental axe 1")+
-    theme(text = element_text(size=20))
-  
-  png(file=
-        paste0(output_path,"/niches/",model,"/",usage,"/predictions/espace_eco/niche_proba_",mois,".png"), 
-      width=1400, height=800)
-  plot(Pnicheproba)
-  dev.off()
-  
-  Pnicheenvlp = ggplot() +
-    stat_contour_filled(data=grid_usage,
-                        aes(x=axe1, y=axe2, z=pred_presence),
-                        color="black",
-                        size=0.55, bins=2,
-                        show.legend =F,
-                        alpha=0.4)+
-    scale_fill_manual(values=c("transparent","grey"))+
-    xlim(MINX, MAXX)+
-    ylim(MINY, MAXY) +
-    theme_minimal() +
-    theme(panel.grid = element_blank(), text = element_text(size=15),
-          panel.border = element_rect(fill= "transparent")) +
-    labs(y="Environmental axe 2",x="Environmental axe 1")
-  
-  png(file=
-        paste0(output_path,"/niches/",model,"/",usage,"/predictions/espace_eco/niche_contour_",mois,".png"), 
-      width=1400, height=800)
-  plot(Pnicheenvlp)
-  dev.off()
- }
-
-
-NichePlot("Ni","juin","ACP_avec_ponderation")
-lapply(liste.usages, function(x) NichePlot(x,"juillet","ACP_avec_ponderation"))
-
-
-# TODO : inclure test pour vérifier si usage présent au mois donné,
-# si non, faire terminer la fonction
-
-# TODO : trouver comme map2 mais avec deux listes de tailles variables
-mapply(function(x,y) NichePlot(x,y,"ACP_avec_ponderation"),
-       list("Ni","Rp"), 
-       list("juin","aout"))
-
-
-for(temps in liste.mois){
-  lapply(liste.usages, function(x) NichePlot(x,temps,"ACP_avec_ponderation"))
-}
-
-# bien que le modèle ne soit pas mensuel,
-# les axes de l'ACP le sont,
-# donc les niches cnonstruites sur ces axes sont aussi mensuelles
-# Pour régler ça, il faudrait faire une ACP globale à travers les mois
-
-# Transform dt pour rendre interprétable pour ggplot
-dt_uses_env2 = dt_uses_env %>% pivot_longer(cols= c("obs_Co","obs_Ni","obs_Pa","obs_Rp","obs_Vt"),
-                                            names_to ="obs_usage",
-                                            values_to = "obs_presence") %>%
-  pivot_longer(cols= c("pred_Co","pred_Ni","pred_Pa","pred_Rp","pred_Vt"),
-               names_to ="pred_usage",
-               values_to = "pred_presence")
-
-
-##### FIGURE 3 POSTER ####
-
-# #CE QUI NE MARCHE PAS
-# scale_fill_gradient(low = "white", high = "black")
-# scale_fill_gradientn(colours = terrain.colors(7))
-# scale_fill_distiller(type="seq",palette = "Greys")
-
-ggplot() +
-  geom_density_2d_filled(data=dt_env, 
-                         aes(x = axe1, y = axe2),
-                         alpha = 0.3,
-                         breaks = c(0.005,seq(from=0.01,to=0.075,0.01)),
-                         show.legend=F
-                         ) +
-  #scale_fill_brewer(palette = "Greys", direction = 1) + # sans cette ligne, ça fait en viridis
-  #scale_fill_grey(start=0.7, end=0.01)+ # fonctionne mais pas satisfaisant
-  #scale_fill_discrete("grey10","grey20","grey30","grey40","grey50","grey60")+
-  #scale_fill_manual(values=c("blue","red","olivedrab","chocolate","azure4","cornflowerblue","maroon"))+
-  scale_fill_manual(values=c("grey70","grey50","grey40","grey25",
-                             "grey20","grey0","grey0"))+
-  geom_density_2d(data=dt_Rp, 
-                  aes(x=axe1, y=axe2), 
-                  breaks = c(0.05,0.5,1), # enveloppes à 95% des points et 50%
-                  colour="darkblue",
-                  contour_var="ndensity"
-  )+
-  geom_density_2d(data=dt_Pa, 
-                  aes(x=axe1, y=axe2), 
-                  breaks = c(0.05,0.5,1), # enveloppes à 95% des points et 50%
-                  colour="firebrick",
-                  contour_var="ndensity"
-  )+
-  geom_density_2d(data=dt_Ni, 
-                  aes(x=axe1, y=axe2), 
-                  breaks = c(0.05,0.5,1), # enveloppes à 95% des points et 50%
-                  colour="forestgreen",
-                  contour_var="ndensity"
-  )+
-  xlim(MINX, MAXX)+
-  ylim(MINY, MAXY)+
-  labs(x="PCA Axis 1", y ="PCA Axis 2")+
-  theme_bw()+
-  theme(panel.grid = element_blank(), text = element_text(size=15),
-        panel.border = element_rect(fill= "transparent"))
-
-# # Grazing
+# ##### FIGURE 3 POSTER ####
+# 
+# # #CE QUI NE MARCHE PAS
+# # scale_fill_gradient(low = "white", high = "black")
+# # scale_fill_gradientn(colours = terrain.colors(7))
+# # scale_fill_distiller(type="seq",palette = "Greys")
+# 
 # ggplot() +
-#   geom_density2d(data=dt_Pa,
-#                          aes(x=axe1, 
-#                              y=axe2,
-#                              color = ..level..),
-#                   linewidth = 0.25,
-#                          breaks = c(0.05,0.5,1),
-#                          colour="purple",
-#                          contour_var="ndensity"
-#   ) +
-#   scale_colour_distiller(palette = "Purples") +
+#   geom_density_2d_filled(data=dt_env, 
+#                          aes(x = axe1, y = axe2),
+#                          alpha = 0.3,
+#                          breaks = c(0.005,seq(from=0.01,to=0.075,0.01)),
+#                          show.legend=F
+#                          ) +
+#   #scale_fill_brewer(palette = "Greys", direction = 1) + # sans cette ligne, ça fait en viridis
+#   #scale_fill_grey(start=0.7, end=0.01)+ # fonctionne mais pas satisfaisant
+#   #scale_fill_discrete("grey10","grey20","grey30","grey40","grey50","grey60")+
+#   #scale_fill_manual(values=c("blue","red","olivedrab","chocolate","azure4","cornflowerblue","maroon"))+
+#   scale_fill_manual(values=c("grey70","grey50","grey40","grey25",
+#                              "grey20","grey0","grey0"))+
+#   geom_density_2d(data=dt_Rp, 
+#                   aes(x=axe1, y=axe2), 
+#                   breaks = c(0.05,0.5,1), # enveloppes à 95% des points et 50%
+#                   colour="darkblue",
+#                   contour_var="ndensity"
+#   )+
+#   geom_density_2d(data=dt_Pa, 
+#                   aes(x=axe1, y=axe2), 
+#                   breaks = c(0.05,0.5,1), # enveloppes à 95% des points et 50%
+#                   colour="firebrick",
+#                   contour_var="ndensity"
+#   )+
+#   geom_density_2d(data=dt_Ni, 
+#                   aes(x=axe1, y=axe2), 
+#                   breaks = c(0.05,0.5,1), # enveloppes à 95% des points et 50%
+#                   colour="forestgreen",
+#                   contour_var="ndensity"
+#   )+
 #   xlim(MINX, MAXX)+
-#   ylim(MINY, MAXY)
+#   ylim(MINY, MAXY)+
+#   labs(x="PCA Axis 1", y ="PCA Axis 2")+
+#   theme_bw()+
+#   theme(panel.grid = element_blank(), text = element_text(size=15),
+#         panel.border = element_rect(fill= "transparent"))
+# 
+# # # Grazing
+# # ggplot() +
+# #   geom_density2d(data=dt_Pa,
+# #                          aes(x=axe1, 
+# #                              y=axe2,
+# #                              color = ..level..),
+# #                   linewidth = 0.25,
+# #                          breaks = c(0.05,0.5,1),
+# #                          colour="purple",
+# #                          contour_var="ndensity"
+# #   ) +
+# #   scale_colour_distiller(palette = "Purples") +
+# #   xlim(MINX, MAXX)+
+# #   ylim(MINY, MAXY)
 
 ##### FIGURE 4 POSTER ####
 
@@ -1509,61 +1479,61 @@ png(file=paste0(output_path ,"/fig4_background.png"),
     width=1400, height=800)
 background
 dev.off()
-
 # essayer avec les pivot_longer de tout faire rentrer dans un graph ?
 
 
-##### OVERLAP ####
-# Entre niches écologiques fondamentales
-
-# Seuil de chaque usage (milieu de l'intervalle de valeurs, max(proba)/2)
-# ex : les proba de Ni sont comprises entre 0 et 0.5, 
-# donc le seuil est 0.5/2 = 0.25
-
-grid_Ni$pred_seuil =  ifelse(grid_Ni$pred_presence >= 0.25,1,0)
-grid_Pa$pred_seuil =  ifelse(grid_Pa$pred_presence >= 0.25,1,0)
-grid_Rp$pred_seuil =  ifelse(grid_Rp$pred_presence >= 0.135,1,0)
-# Transformation en raster
-r_Ni = rasterFromXYZ(data.frame(x = grid_Ni$axe1, y=grid_Ni$axe2, nesting=grid_Ni$pred_seuil))
-r_Pa = rasterFromXYZ(data.frame(x= grid_Pa$axe1, y= grid_Pa$axe2, grazing= grid_Pa$pred_seuil))
-r_Rp = rasterFromXYZ(data.frame(x=grid_Rp$axe1, y=grid_Rp$axe2, hiking=grid_Rp$pred_seuil))
-
-r_uses = stack(r_Ni, r_Pa, r_Rp)
-r_uses$sum = sum(r_uses)
-
-plot(r_uses)
-
-dt_niche_uses = data.table(as.data.frame(r_uses))
-sum(dt_niche_uses$nesting) # 13 502
-sum(dt_niche_uses$hiking) # 111 139
-sum(dt_niche_uses$grazing) # 33 641
-dt_niche_uses$combi <- paste0(dt_niche_uses$nesting,"_",dt_niche_uses$hiking,"_" ,dt_niche_uses$grazing)
-# Nesting - Hiking - Grazing 
-# 1_0_1 = Nesting + Grazing   -> 47
-# 1_1_0 = Nesting + Hiking      -> 8627
-# 0_1_1 = Hiking + Grazing    -> 26669
-# 1_1_1 = les trois           -> 3936
-# 0_0_1 -> 2989
-# 0_1_0 -> 71907
-# 1_0_0  -> 892
-table(dt_niche_uses$combi)
-
-# Entre espaces géographiques (en juillet)
-dt_uses_env$obs_Pa =  ifelse(dt_uses_env$obs_Pa >0,1,0)
-dt_uses_env$obs_Ni =  ifelse(dt_uses_env$obs_Ni >0,1,0)
-dt_uses_env$obs_Rp =  ifelse(dt_uses_env$obs_Rp >0,1,0)
-
-sum(dt_uses_env$obs_Ni) # 4728
-sum(dt_uses_env$obs_Rp) # 6243
-table(dt_uses_env$obs_Pa) # 6573
-
-dt_uses_env$combi <- paste0(dt_uses_env$obs_Ni,"_",dt_uses_env$obs_Rp,"_" ,dt_uses_env$obs_Pa)
-table(dt_uses_env$combi)
-# Nesting - Hiking - Grazing 
-# 1_0_1 = Nesting + Grazing   -> 1783
-# 1_1_0 = Nesting + Hiking      -> 532
-# 0_1_1 = Hiking + Grazing    -> 799
-# 1_1_1 = les trois           -> 299 
-# 0_0_1 -> 3692
-# 0_1_0 -> 4613
-# 1_0_0  -> 2114
+# ##### OVERLAP ####
+# # Calcul très manuel de la superficie d'overlap
+# # dans les espaces écologiques prédits
+# 
+# # Seuil de chaque usage (milieu de l'intervalle de valeurs, max(proba)/2)
+# # ex : les proba de Ni sont comprises entre 0 et 0.5, 
+# # donc le seuil est 0.5/2 = 0.25
+# 
+# grid_Ni$pred_seuil =  ifelse(grid_Ni$pred_presence >= 0.25,1,0)
+# grid_Pa$pred_seuil =  ifelse(grid_Pa$pred_presence >= 0.25,1,0)
+# grid_Rp$pred_seuil =  ifelse(grid_Rp$pred_presence >= 0.135,1,0)
+# # Transformation en raster
+# r_Ni = rasterFromXYZ(data.frame(x = grid_Ni$axe1, y=grid_Ni$axe2, nesting=grid_Ni$pred_seuil))
+# r_Pa = rasterFromXYZ(data.frame(x= grid_Pa$axe1, y= grid_Pa$axe2, grazing= grid_Pa$pred_seuil))
+# r_Rp = rasterFromXYZ(data.frame(x=grid_Rp$axe1, y=grid_Rp$axe2, hiking=grid_Rp$pred_seuil))
+# 
+# r_uses = stack(r_Ni, r_Pa, r_Rp)
+# r_uses$sum = sum(r_uses)
+# 
+# plot(r_uses)
+# 
+# dt_niche_uses = data.table(as.data.frame(r_uses))
+# sum(dt_niche_uses$nesting) # 13 502
+# sum(dt_niche_uses$hiking) # 111 139
+# sum(dt_niche_uses$grazing) # 33 641
+# dt_niche_uses$combi <- paste0(dt_niche_uses$nesting,"_",dt_niche_uses$hiking,"_" ,dt_niche_uses$grazing)
+# # Nesting - Hiking - Grazing 
+# # 1_0_1 = Nesting + Grazing   -> 47
+# # 1_1_0 = Nesting + Hiking      -> 8627
+# # 0_1_1 = Hiking + Grazing    -> 26669
+# # 1_1_1 = les trois           -> 3936
+# # 0_0_1 -> 2989
+# # 0_1_0 -> 71907
+# # 1_0_0  -> 892
+# table(dt_niche_uses$combi)
+# 
+# # Entre espaces géographiques (en juillet)
+# dt_uses_env$obs_Pa =  ifelse(dt_uses_env$obs_Pa >0,1,0)
+# dt_uses_env$obs_Ni =  ifelse(dt_uses_env$obs_Ni >0,1,0)
+# dt_uses_env$obs_Rp =  ifelse(dt_uses_env$obs_Rp >0,1,0)
+# 
+# sum(dt_uses_env$obs_Ni) # 4728
+# sum(dt_uses_env$obs_Rp) # 6243
+# table(dt_uses_env$obs_Pa) # 6573
+# 
+# dt_uses_env$combi <- paste0(dt_uses_env$obs_Ni,"_",dt_uses_env$obs_Rp,"_" ,dt_uses_env$obs_Pa)
+# table(dt_uses_env$combi)
+# # Nesting - Hiking - Grazing 
+# # 1_0_1 = Nesting + Grazing   -> 1783
+# # 1_1_0 = Nesting + Hiking      -> 532
+# # 0_1_1 = Hiking + Grazing    -> 799
+# # 1_1_1 = les trois           -> 299 
+# # 0_0_1 -> 3692
+# # 0_1_0 -> 4613
+# # 1_0_0  -> 2114
