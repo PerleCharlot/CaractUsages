@@ -2,7 +2,7 @@
 # Nom : Modélisation des usages
 # Auteure : Perle Charlot
 # Date de création : 09-09-2022
-# Dates de modification : 30-01-2023
+# Dates de modification : 01-02-2023
 
 ### Librairies -------------------------------------
 library(glmmfields)
@@ -26,6 +26,7 @@ library(glue)
 library(exactextractr)
 library(patchwork)
 library(metR)
+library(plotROC)
 ### Fonctions -------------------------------------
 
 # Fonction qui encode des colonnes d'un df en factoriel, si leur nature
@@ -98,9 +99,9 @@ ExtractData1Use <- function(usage,
                                         # "ACP_avec_ponderation" "ACP_sans_ponderation"
                             ){
   # # TEST
-  # usage = c("paturage")
+  # usage = c("nidification")
   # fenetre_temporelle = "juillet"
-  # type_donnees = "ACP_AFDM"
+  # type_donnees = "ACP_avec_ponderation"
   # mois = fenetre_temporelle
   
   DataUsageMois <- function(mois){
@@ -206,14 +207,14 @@ ExtractData1Use <- function(usage,
 CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
   
   # TEST
-  nom_court_usage = "Ni"
+  nom_court_usage = "Pa"
   type_donnees = "ACP_avec_ponderation"
   ## "ACP_avec_ponderation" "ACP_sans_ponderation" "ACP_AFDM" "brute"
-  fit = "2_axes"
+  fit = "all_simple" # "2_axes" or "all_simple"
   
   
-  if(!dir.exists(paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage))){
-    dir.create(paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage))
+  if(!dir.exists(paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage,"/",fit))){
+    dir.create(paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage,"/",fit))
   }
   
   # Import données
@@ -280,7 +281,7 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
       theme(text = element_text(size=14))
   }
   # Sauvegarde
-  png(file=paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage,"/viz_distrib_famd.png"), 
+  png(file=paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage,"/",fit,"/viz_distrib_famd.png"), 
       width=1400, height=800)
   print(plot)
   dev.off()
@@ -319,11 +320,15 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
     # on ne garde que les 2 premiers axes auxquels on ajoute 
     # un terme d'interaction
     # et des termes quadratiques
-    
-    # Formule
-    formula.usage = as.formula(usage ~ axe1_toutes + axe2_toutes + 
-                                 I(axe1_toutes^2)+ I(axe2_toutes^2) + #termes quadratiques
-                                 axe1_toutes*axe2_toutes)
+    formula.usage = as.formula(paste0(names(train)[1]," ~ ",names(train)[2],
+                                      " + ",names(train)[3],
+                                      " + I(",names(train)[2],"^2) + I(",
+                                      names(train)[3],"^2) + ",
+                                      names(train)[2],"*",names(train)[3]))
+    # # Formule
+    # formula.usage = as.formula(usage ~ axe1_toutes + axe2_toutes + 
+    #                              I(axe1_toutes^2)+ I(axe2_toutes^2) + #termes quadratiques
+    #                              axe1_toutes*axe2_toutes)
   }
   if(fit == "all_simple"){
     # (brute ou axes_AFDM)
@@ -332,32 +337,94 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
     
     # Formule
     formula.usage = as.formula(usage ~ .)
+    
+    # TODO : tester manuelle si ça marche (RF)
+    # vachement long
+    # RF (que avec modèle simple, sans termes d'interactions ou cubiques)
+    model.rf <- caret::train(formula.usage,
+                             train,
+                             method = "ranger",
+                             trControl = trainControl(method="cv", number = 5, 
+                                                      verboseIter = T, summaryFunction = twoClassSummary,
+                                                      classProbs = T,savePredictions=TRUE),
+                             metric= 'ROC',
+                             weights = w.vect)
+    
+    # Enregistrer le modèle pour pouvoir ensuite echo = F
+    save(model.rf, file = paste0(output_path,"/niches/",type_donnees,
+                                 "/",nom_court_usage,"/",fit,"/modele_rf.rdata"))
+    
+    # # TODO : regarder comment comparer modèle GLm / RF
+    # # Comparaison entre modèles
+    # resamps <- resamples(list(RF = model.rf,
+    #                           GLM = model.glm))
+    # summary(resamps)
+    # trellis.par.set(caretTheme())
+    # dotplot(resamps, metric = "ROC")
+    # 
+    # # ROC, sensitivity and speciiity of each resample
+    # model.glm$resample
+    # model.rf$resample
+    
   }
   
   # GLM
+  set.seed(123)
   model.glm <- caret::train(formula.usage,
                             train,
                             method = "glm",
                             family = "binomial",
                             trControl = fitControl,
-                            #trainControl(method="cv", number = 5, verboseIter = T, classProbs = T)
-                            metric = 'ROC',
+                            #metric = 'ROC',
                             weights = w.vect)
-  summary(model.glm)
+  df <- data.frame(usage = train$usage, Prob = model.glm$finalModel$fitted.values)
+  plot_ROC_GLM <- df %>%
+    ggplot(aes(d = usage, m = Prob)) +
+    geom_roc() +
+    labs(title="Probability threshold") +
+    theme(text = element_text(size=18))
   
-  # RF
-  model.rf <- caret::train(formula.usage,
-                               train,
-                               method = "ranger",
-                               trControl = fitControl,
-                               metric= 'ROC',
-                               weights = w.vect)
-
-  summary(model.rf)
+  png(file=paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage,"/",fit,"/other_ROC.png"), 
+      width=1400, height=800)
+  print(plot_ROC_GLM)
+  dev.off()
   
-  # TODO : tester manuelle si ça marche (RF)
-  # vachement long
-  # TODO : regarder comment comparer modèle GLm / RF
+  # TODO: reprendre plus tard GAM  
+  # set.seed(123)
+  # model.gam <- caret::train(formula.usage,
+  #                           train,
+  #                           method = "gam",
+  #                           family = "binomial",
+  #                           trControl = fitControl,
+  #                           #metric = 'ROC',
+  #                           weights = w.vect)
+  # 
+  # model.gam2 <- caret::train(usage ~ .,
+  #                          train,
+  #                          method = "gam",
+  #                          trControl = trainControl(method="cv", number = 5, 
+  #                                                   verboseIter = T, summaryFunction = twoClassSummary,
+  #                                                   classProbs = T,savePredictions=TRUE),
+  #                          metric= 'ROC',
+  #                          weights = w.vect)
+  # 
+  # 
+  # df <- data.frame(usage = train$usage, Prob = model.gam$finalModel$fitted.values)
+  # plot_ROC_GAM =ggplot(df, aes(d = usage, m = Prob)) + geom_roc()
+  # 
+  # rs <- resamples(list(GLM = model.glm, GAM = model.gam))
+  # summary(rs)
+  # 
+  # # https://remiller1450.github.io/s230f19/caret2.html
+  # library(visreg)
+  # visreg(model.glm$finalModel, xvar = "axe1_ACP_avec_ponderation", scale = "response")
+  # visreg(model.glm$finalModel, xvar = "axe2_ACP_avec_ponderation", scale = "response")
+  
+  # Enregistrer le modèle pour pouvoir ensuite echo = F
+  save(model.glm, file = paste0(output_path,"/niches/",type_donnees,
+                                "/",nom_court_usage,"/",fit,"/modele_glm.rdata"))
+  save(formula.usage, file = paste0(output_path,"/niches/",type_donnees,
+                                "/",nom_court_usage,"/",fit,"/formula_glm.rdata"))
   
     #densityplot(model.glm, pch = "|")
     # # estimate of the uncertainty in our accuracy estimate
@@ -365,33 +432,34 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
     
     # summary(model.glm$finalModel)
     # model.glm.f <- model.glm$finalModel
-    
-  # TODO : inclure RF + comparaison modèle
-  # Comparaison entre modèles
-  resamps <- resamples(list(RF = model.rf,
-                              GLM = model.glm))
-  summary(resamps)
-  trellis.par.set(caretTheme())
-  dotplot(resamps, metric = "ROC")
 
-  # Enregistrer le modèle pour pouvoir ensuite echo = F
-  save(model.glm, file = paste0(output_path,"/niches/",type_donnees,
-                                     "/",nom_court_usage,"/modele_glm.rdata"))
-  # Enregistrer le modèle pour pouvoir ensuite echo = F
-  save(model.rf, file = paste0(output_path,"/niches/",type_donnees,
-                                "/",nom_court_usage,"/modele_rf.rdata"))
-  
-  # Find best threshold
-  probs <- seq(.1, 0.9, by = 0.02)
-  ths <- thresholder(model.glm,
-                     threshold = probs,
-                     final = TRUE,
-                     statistics = "all")
-  # ind_thr = which(ths[,"Balanced Accuracy"] == max(ths[,"Balanced Accuracy"]))
-  # ths[ind_thr,"prob_threshold"]
+  # Find best threshold (from proba to occurrence)
+  # pas nécessaire si on reste en probabilité
+  # TODO : à réfléchir plus tard
+  ######### DE LA ########
+  probs <- seq(0, 1, by = 0.05)
+  ths <- thresholder(model.glm,threshold = probs)
   ind_thr = which(ths[,"J"] == max(ths[,"J"]))
   proba_threshold = ths[ind_thr,"prob_threshold"]
+  cat(paste0("Seuil probabilité à : ",proba_threshold,"\n"))
   
+  plot_spe_sens = ths %>%
+    ggplot(aes(x = prob_threshold, y = Sensitivity)) + 
+    geom_point() + 
+    geom_point(aes(y = Specificity), col = "red")+
+    scale_y_continuous(sec.axis = sec_axis(trans=~ .,name="Specificity"))+
+    theme(
+      axis.title.y = element_text(color = "black", size=15),
+      axis.title.y.right = element_text(color = "red", size=15),
+      text = element_text(size=24)
+    ) + labs(x="Probability of occurrence",title=paste0("Choosen threshold = ",proba_threshold," (J maximization)"))+
+    scale_x_continuous(breaks=seq(0,1,0.1))
+  
+  png(file=paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage,"/",fit,"/specificity_sensibility_threshold.png"), 
+      width=1400, height=800)
+  print(plot_spe_sens)
+  dev.off()
+
   # # Tester fiabilité modèle : score de Brier, matrice de confusion et AUC/ROC
   # brier_score = BrierScore(model.glm$finalModel)
 
@@ -401,21 +469,33 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
   # test$pred_resp <- ifelse(test$pred_resp_presence > 0.5, 1, 0)
   # test$pred_resp = as.factor(test$pred_resp)
   
+  # teststock = test
+  
   pred_prob <- predict(model.glm, test, type="prob")
   test <- cbind(test, pred_prob)
-  test$pred_resp <- ifelse(test$presence > proba_threshold, 1, 0)
+  
+  # test %>%
+  #   ggplot(aes(y=presence))+
+  #   geom_boxplot()+ylim(c(0,1))
+
+  
+  #après inspection manuelle
+  # proba_threshold <- 0.35
+  test$pred_resp <- ifelse(test$presence >  proba_threshold , 1, 0)
   test$pred_resp <- as.factor(test$pred_resp)
   test$pred_resp <- fct_recode(test$pred_resp,
                                "presence" = "1", 
                                "absence" = "0")
   
+  table(test$usage, test$pred_resp)
+  
   # Sauvegarde fichier test
   write.csv(test,paste0(output_path,"/niches/",type_donnees,
-                        "/",nom_court_usage,"/table_test.csv") )
+                        "/",nom_court_usage,"/",fit,"/table_test.csv") )
   
   # Sauvegarde AUC/ROC
   png(file=paste0(output_path,"/niches/",type_donnees,
-                  "/",nom_court_usage,"/roc.png"), 
+                  "/",nom_court_usage,"/",fit,"/roc.png"), 
       width=800, height=800)
   print(roc(test$usage ~ test$presence, plot = TRUE, print.auc = TRUE))
   #print(roc(test$usage ~ test$pred_resp, plot = TRUE, print.auc = TRUE))
@@ -433,17 +513,19 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
   # Sauvegarde matrice de confusion
   CM = confusionMatrix(test$pred_resp, test$usage)
   save(CM, file=paste0(output_path,"/niches/",type_donnees,
-                       "/",nom_court_usage,"/CM.rdata"))
+                       "/",nom_court_usage,"/",fit,"/CM.rdata"))
+  
+  ######### A LA ########
 
   # Prédiction spatialisée
   predUsageMois <- function(mois){
-    # # TEST
+    # # # TEST
     # mois = "juin"
     
     if(!dir.exists(paste0(output_path,"/niches/",type_donnees,"/",
-                          nom_court_usage,"/predictions/"))){
+                          nom_court_usage,"/",fit,"/predictions_GLM/"))){
       dir.create(paste0(output_path,"/niches/",type_donnees,"/",
-                        nom_court_usage,"/predictions/"))
+                        nom_court_usage,"/",fit,"/predictions_GLM/"))
     }
     
     t = try(raster(paste0(output_path,"/par_periode/",mois,"/",nom_lg,".tif")),
@@ -456,32 +538,46 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
       df.env <- fread(paste0(input_path,"/vars_env/",type_donnees,"/",
                              mois,"/dt_vars.csv"),dec=",")
       df.env2 = na.omit(df.env)
-      #df.env$prob <- predict(model.glm, df.env, type="prob")
-      
+
+      # Prediction
       prob_spatial <- predict(model.glm, df.env2, type="prob")
-      
       #df.env$pred <- ifelse(df.env$prob > 0.50, 1, 0)
-      
+      # Convert prediction in raster
       raster_prob = rasterFromXYZ(data.frame(df.env2$x, df.env2$y, prob_spatial$presence), crs=EPSG_2154)
       
-      #raster_prob = rasterFromXYZ(data.frame(df.env$x, df.env$y, df.env$prob), crs=EPSG_2154)
-      
+      # Create raster for observed data
       raster_obs = raster(paste0(output_path,"/par_periode/",mois,"/",nom_lg,".tif"))
       # mask (car 0 confondu avec NA hors N2000)
       raster_obs <- mask(raster_obs, limiteN2000.shp)
-      
-      
       raster_obs <- projectRaster(raster_obs, raster_prob)
       
       all_rasters = stack(raster_obs, raster_prob)
       names(all_rasters) = c("observation","probabilite_presence")
-      #plot(all_rasters, colNA='black')
-      
       writeRaster(all_rasters, 
                   paste0(output_path,"/niches/",type_donnees,"/",
-                         nom_court_usage,
-                         "/predictions/rasters_pred_",mois,".tif"),
+                         nom_court_usage,"/",fit,
+                         "/predictions_GLM/rasters_pred_",mois,".tif"),
                   overwrite=TRUE)
+      
+      if(fit == "all_simple"){
+        
+        if(!dir.exists(paste0(output_path,"/niches/",type_donnees,"/",
+                              nom_court_usage,"/",fit,"/predictions_RF/"))){
+          dir.create(paste0(output_path,"/niches/",type_donnees,"/",
+                            nom_court_usage,"/",fit,"/predictions_RF/"))
+        }
+        
+        prob_spatial_rf <- predict(model.rf, df.env2, type="prob")
+        raster_prob_rf = rasterFromXYZ(data.frame(df.env2$x, df.env2$y, prob_spatial_rf$presence), crs=EPSG_2154)
+        all_rasters = stack(raster_obs, raster_prob_rf)
+        names(all_rasters) = c("observation","probabilite_presence")
+        
+        writeRaster(all_rasters, 
+                    paste0(output_path,"/niches/",type_donnees,"/",
+                           nom_court_usage,"/",fit,
+                           "/predictions_RF/rasters_pred_",mois,".tif"),
+                    overwrite=TRUE)
+      }
       cat(paste0("\nL'usage ", nom_beau," a été prédit pour le mois de ",mois,"."))
     }
   }
@@ -489,20 +585,18 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
   lapply(liste.mois, predUsageMois)
 }
 
-# TODO : implémenter RF et GAM ?
-
 # Fonction qui retourne des graphiques présentant la distribution 
 # des usages (en densité de présence ou proba) dans un espace écologique
 # (soit sur une AFDM d'une dimension, soit sur ACP de toutes les dimensions),
 # pour une période donnée
 EspEco <- function(usage, type_donnees, liste_mois, espace){
-  # TEST
-  liste_mois = "juillet" # Mois considéré (ou autre fenêtre temporelle)
-  usage =c("Rp","Ni","Pa") # Nom court de l'usage considéré, ex "Ni"
-  type_donnees = "ACP" # "brute" ou "ACP_avec ou sans ponderation" ou "ACP_AFDM", relatif aux 
-  # variables utilisées pour construire les niches d'usages
-  espace = 'dimension' # "global" ou "dimension", relatif à la
-  # projection dans un espace global ou par dimension
+  # # TEST
+  # liste_mois = "juillet" # Mois considéré (ou autre fenêtre temporelle)
+  # usage =c("Rp","Ni","Pa") # Nom court de l'usage considéré, ex "Ni"
+  # type_donnees = "ACP" # "brute" ou "ACP_avec ou sans ponderation" ou "ACP_AFDM", relatif aux 
+  # # variables utilisées pour construire les niches d'usages
+  # espace = 'dimension' # "global" ou "dimension", relatif à la
+  # # projection dans un espace global ou par dimension
   
   # S'assurer ordre alphabétique (important pour la suite)
   usage = usage[order(usage)]
@@ -814,9 +908,9 @@ EspEco <- function(usage, type_donnees, liste_mois, espace){
 # Fonction pour créer des prédiction dans une grille de conditions envs
 predUsageMois_grid <- function(usage, mois,type_donnees){
   # # TEST
-  # mois = "juillet"
+  # mois = "juin"
   # usage = "Ni"
-  # type_donnees = "ACP"
+  # type_donnees = "ACP_avec_ponderation"
   
   if(!dir.exists(paste0(output_path,"/niches/",type_donnees,"/",
                         usage,"/predictions/espace_eco/"))){
@@ -824,9 +918,14 @@ predUsageMois_grid <- function(usage, mois,type_donnees){
                       usage,"/predictions/espace_eco/"))
   }
   # Créer une grille de valeurs des axes d'ACP
-  df.env.grid = data.frame(axe1_toutes =  seq(from = MINX, to = MAXX, length.out = 500), 
-                           axe2_toutes =seq(from = MINY, to = MAXY, length.out = 500))
-  df.env.grid = df.env.grid %>% expand(axe1_toutes, axe2_toutes)
+  # df.env.grid = data.frame(axe1 =  seq(from = MINX, to = MAXX, length.out = 500), 
+  #                          axe2 =seq(from = MINY, to = MAXY, length.out = 500))
+  
+  df.env.grid = data.frame(axe1 =  seq(from = -1, to = 1, length.out = 500), 
+                           axe2 =seq(from = -1, to = 1, length.out = 500))
+  
+  df.env.grid = df.env.grid %>% expand(axe1, axe2)
+  names(df.env.grid) = c(paste0("axe1_",type_donnees),paste0("axe2_",type_donnees))
   # Appeler modèle
   load(paste0(output_path,"/niches/",type_donnees,"/", usage,"/modele_glm.rdata"))
   # Prédire sur cette grille
@@ -839,17 +938,17 @@ predUsageMois_grid <- function(usage, mois,type_donnees){
 
 # fonction qui sort les graphiques des niches d'usages
 NichePlot <- function(usage,mois,model){
-  # TEST
-  # usage = "Lk"
-  # mois = "aout"
-  # model = "ACP_avec_ponderation" # "ACP_AFDM" ou "ACP_avec_ponderation" ou 
+  # #TEST
+  # usage = "Ni"
+  # mois = "juin"
+  # model = "ACP_avec_ponderation" # "ACP_AFDM" ou "ACP_avec_ponderation" ou
   # # "ACP_sans_ponderation" ou "brute"
   
   # Load prediction uses rasters
   files = list.files(paste0(output_path,"/niches/",model,"/",usage),".tif$" ,
                      full.names = T,recursive=T)
   
-  t = try(stack(files[grep(mois,files)]))
+  t = try(stack(files[grep(mois,files)]),silent=TRUE)
   
   if(inherits(t, "try-error")) {
     cat(paste0("Usage ",usage, " n'est pas présent au mois de " ,mois,".\n"))
@@ -858,11 +957,12 @@ NichePlot <- function(usage,mois,model){
     
     r_uses = stack(files[grep(mois,files)])
     names(r_uses) = c(paste0(c("obs","pred"),"_",usage))
+    #plot(r_uses)
     # Load ACP axes = environment rasters
-    files = list.files(paste0(gitCaractMilieu,"/output/ACP/",model,"/"),
+    files.env = list.files(paste0(gitCaractMilieu,"/output/ACP/",model,"/"),
                        "stack",full.names=T,recursive=T)
-    r_env = stack(files[grep(mois,files)])
-    names(r_env) = paste0("axe",1:3)
+    r_env = stack(files.env[grep(mois,files.env)])
+    names(r_env)[1:3] = paste0("axe",1:3,"_",model)
     # Stack uses + env
     r_uses_env = stack(r_uses, projectRaster(r_env,r_uses))
     # Transform in dt
@@ -884,10 +984,10 @@ NichePlot <- function(usage,mois,model){
     # Créer valeurs pour fond environnemental
     dt_env = data.table(as.data.frame(r_env))
     dt_env = na.omit(dt_env)
-    MINX = min(dt_env$axe1)
-    MAXX = max(dt_env$axe1)
-    MINY=  min(dt_env$axe2)
-    MAXY = max(dt_env$axe2)
+    MINX = min(dt_env[,1])
+    MAXX = max(dt_env[,1])
+    MINY=  min(dt_env[,2])
+    MAXY = max(dt_env[,2])
     # Run modèles sur grille conditions envs
     grid_usage = predUsageMois_grid(usage,mois,model) #grid_Ni
     # Plot
@@ -900,8 +1000,10 @@ NichePlot <- function(usage,mois,model){
       geom_tile() +
       stat_contour(color="black", size=0.55, bins=2) +
       geom_text_contour(aes(z = round(pred_presence,1)),bins=2, stroke=0.2,size=8) +
-      xlim(MINX, MAXX)+
-      ylim(MINY, MAXY) +
+      # xlim(MINX, MAXX)+
+      # ylim(MINY, MAXY) +
+      xlim(-1, 1) +
+      ylim(-1, 1) +
       scale_fill_gradient2(midpoint=0.5,
                            limits=c(0,1))+
       labs(title=usage, fill ="Probability of\noccurrence",
@@ -990,7 +1092,10 @@ col_vars_formate =  col_vars %>%
 #     selon le type de prédicteurs environnement utilisé (les variables brutes,
 #     les 17 axes des AFDM par dimension, les 2 axes d'une ACP globale pondérée 
 #     par dimension ou non)
-for(type.de.donnees in c("brute","ACP_AFDM","ACP_sans_ponderation","ACP_avec_ponderation")){
+
+"ACP_AFDM" #à faire tourner une fois que j'aurais fait tourner le script dans caractmilieu
+
+for(type.de.donnees in c("brute","ACP_sans_ponderation","ACP_avec_ponderation")){
   lapply(c("nidification",
            "couchade",
            "paturage",
@@ -998,30 +1103,43 @@ for(type.de.donnees in c("brute","ACP_AFDM","ACP_sans_ponderation","ACP_avec_pon
            "VTT",
            "parade"),function(x) ExtractData1Use(usage=x, type_donnees = type.de.donnees))
 }
-# # Exemple pour un seul type de prédicteurs
-# lapply(c("nidification",
-#          "couchade",
-#          "paturage",
-#          "randonnee_pedestre",
-#          "VTT",
-#          "parade"),function(x) ExtractData1Use(usage=x, type_donnees = "ACP_sans_ponderation"))
+# Exemple pour un seul type de prédicteurs
+lapply(c("nidification",
+         "couchade",
+         "paturage",
+         "randonnee_pedestre",
+         "VTT",
+         "parade"),function(x) ExtractData1Use(usage=x, type_donnees = "ACP_sans_ponderation"))
 
 # 2 - Exploitation des données : création modèle (pour l'instant, GLM)
 #     selon le type de prédicteurs environnement utilisé (les variables brutes,
 #     les 17 axes des AFDM par dimension, les 2 axes d'une ACP globale pondérée 
 #     par dimension ou non)
 set.seed(1)
-for(type.de.donnees in c("brute","ACP_AFDM",
+for(type.de.donnees in c(#"brute","ACP_AFDM",
                          "ACP_sans_ponderation","ACP_avec_ponderation")){
   lapply(liste.usages, 
          function(x) CreateModelUsage(nom_court_usage=x,
-                                      type_donnees = type.de.donnees))
+                                      type_donnees = type.de.donnees,
+                                      fit="2_axes"))
+}
+
+for(type.de.donnees in c(#"brute","ACP_AFDM",
+  "ACP_sans_ponderation","ACP_avec_ponderation")){
+  lapply(liste.usages, 
+         function(x) CreateModelUsage(nom_court_usage=x,
+                                      type_donnees = type.de.donnees,
+                                      fit="all_simple"))
 }
 
 # 3 - Visualisation des niches écologiques des usages
-for(temps in liste.mois){
-  lapply(liste.usages, function(x) NichePlot(x,temps,"ACP_avec_ponderation"))
+for(u in liste.usages){
+  lapply(liste.mois, function(x) NichePlot(u,x,"ACP_avec_ponderation"))
 }
+for(u in liste.usages){
+  lapply(liste.mois, function(x) NichePlot(u,x,"ACP_sans_ponderation"))
+}
+       
 # Rq : pour modèle basé sur axes ACP :
 # bien que le modèle ne soit pas mensuel,
 # les axes de l'ACP le sont,
