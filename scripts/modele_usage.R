@@ -2,7 +2,7 @@
 # Nom : Modélisation des usages
 # Auteure : Perle Charlot
 # Date de création : 09-09-2022
-# Dates de modification : 01-02-2023
+# Dates de modification : 19-02-2023
 
 ### Librairies -------------------------------------
 library(glmmfields)
@@ -95,16 +95,27 @@ AjustExtCRS <- function(path.raster.to.check, path.raster.ref=chemin_mnt){
 # Fonction qui sort les valeurs des var env associées à un usage donné
 ExtractData1Use <- function(usage,
                             fenetre_temporelle = liste.mois,
-                            type_donnees # "brute", "ACP_AFDM"
+                            type_donnees # "brute", "ACP_ACP" 
                                         # "ACP_avec_ponderation" "ACP_sans_ponderation"
                             ){
   # # TEST
   # usage = c("nidification")
   # fenetre_temporelle = "juillet"
-  # type_donnees = "ACP_avec_ponderation"
+  # type_donnees = "ACP_ACP"
   # mois = fenetre_temporelle
   
+  cat(paste0("Analyse ", type_donnees," pour l'usage ",usage," en cours.\n"))
+  
+  if(type_donnees == "ACP_ACP"){
+    path_ACP = paste0(type_donnees,"/summer/sans_ponderation/pred_month/")
+  }
+  if(type_donnees == "ACP_avec_ponderation" | type_donnees == "ACP_sans_ponderation"){
+    path_ACP = paste0(type_donnees,"/summer/pred_month/")
+  }
+  
   DataUsageMois <- function(mois){
+    
+    cat(paste0("Mois de ",mois, " en cours.\n"))
 
     # Raster de l'usage considéré
     raster.usage.mois.path = list.files(paste0(wd,"/output/par_periode/",mois),
@@ -115,14 +126,14 @@ ExtractData1Use <- function(usage,
       
       # Rasters environnement : sur le mois considéré
       if(type_donnees != "brute"){
-        all.tif = list.files(paste0(gitCaractMilieu,"/output/ACP/",type_donnees,"/"), 
-                             pattern = ".tif$",recursive = T,full.names = T)
-        all.tif = all.tif[grep(mois,all.tif)]
+        all.tif = list.files(paste0(gitCaractMilieu,"/output/ACP/",path_ACP,mois,"/"), 
+                             pattern = ".tif$|.TIF$",recursive = T,full.names = T)
+        #all.tif = all.tif[grep(mois,all.tif)]
         all.tif = all.tif[grep("axe",all.tif)]
       }
       if(type_donnees == "brute"){
         all.tif = list.files(paste0(gitCaractMilieu,"/output/stack_dim/"),
-                             pattern = ".tif$",recursive = T,full.names = T)
+                             pattern = ".tif$| .TIF$",recursive = T,full.names = T)
         all.tif = all.tif[grep(mois,all.tif)]
       }
       
@@ -165,8 +176,10 @@ ExtractData1Use <- function(usage,
         }
         df.env = cbind(coordinates(stack.env2), df.env)
         write_csv2(df.env, paste0(DOS,"/dt_vars.csv"))
-      } else{cat(paste0("\n Le tableau des variables ",
-                        type_donnees," du mois de ",mois," a déjà été calculé."))}
+      } else{
+        #cat(paste0("\n Le tableau des variables ",
+        #                type_donnees," du mois de ",mois," a déjà été calculé."))
+        }
       
       # Combiner env + usage
       stack.env.usage = c(raster.usage.mois, stack.env)
@@ -206,15 +219,16 @@ ExtractData1Use <- function(usage,
 # Crée un ENM (pour 1 usage donné), puis prédit tous les mois
 CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
   
-  # TEST
-  nom_court_usage = "Pa"
-  type_donnees = "ACP_avec_ponderation"
-  ## "ACP_avec_ponderation" "ACP_sans_ponderation" "ACP_AFDM" "brute"
-  fit = "all_simple" # "2_axes" or "all_simple"
+  # #TEST
+  # nom_court_usage = "Co"
+  # type_donnees = "ACP_sans_ponderation"
+  # ## "ACP_avec_ponderation" "ACP_sans_ponderation" "ACP_AFDM" "brute"
+  # fit = "2_axes" # "2_axes" or "all_simple"
   
+  cat("\n Usage ", nom_court_usage," - analyse ",type_donnees,".\n")
   
   if(!dir.exists(paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage,"/",fit))){
-    dir.create(paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage,"/",fit))
+    dir.create(paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage,"/",fit),recursive = T)
   }
   
   # Import données
@@ -308,7 +322,7 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
   fitControl <- trainControl(## 10-fold CV
     method = "repeatedcv",
     number = 10,
-    repeats = 10,
+    repeats = 5,
     summaryFunction = twoClassSummary,
     classProbs = TRUE,
     savePredictions=TRUE)
@@ -329,6 +343,7 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
     # formula.usage = as.formula(usage ~ axe1_toutes + axe2_toutes + 
     #                              I(axe1_toutes^2)+ I(axe2_toutes^2) + #termes quadratiques
     #                              axe1_toutes*axe2_toutes)
+    
   }
   if(fit == "all_simple"){
     # (brute ou axes_AFDM)
@@ -368,6 +383,9 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
     
   }
   
+  save(formula.usage, file = paste0(output_path,"/niches/",type_donnees,
+                                    "/",nom_court_usage,"/",fit,"/formula_glm.rdata"))
+  
   # GLM
   set.seed(123)
   model.glm <- caret::train(formula.usage,
@@ -377,6 +395,7 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
                             trControl = fitControl,
                             #metric = 'ROC',
                             weights = w.vect)
+  cat("\n  Modèle avec 2 axes fitté.\n")
   df <- data.frame(usage = train$usage, Prob = model.glm$finalModel$fitted.values)
   plot_ROC_GLM <- df %>%
     ggplot(aes(d = usage, m = Prob)) +
@@ -423,8 +442,6 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
   # Enregistrer le modèle pour pouvoir ensuite echo = F
   save(model.glm, file = paste0(output_path,"/niches/",type_donnees,
                                 "/",nom_court_usage,"/",fit,"/modele_glm.rdata"))
-  save(formula.usage, file = paste0(output_path,"/niches/",type_donnees,
-                                "/",nom_court_usage,"/",fit,"/formula_glm.rdata"))
   
     #densityplot(model.glm, pch = "|")
     # # estimate of the uncertainty in our accuracy estimate
@@ -436,29 +453,9 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
   # Find best threshold (from proba to occurrence)
   # pas nécessaire si on reste en probabilité
   # TODO : à réfléchir plus tard
+  
   ######### DE LA ########
-  probs <- seq(0, 1, by = 0.05)
-  ths <- thresholder(model.glm,threshold = probs)
-  ind_thr = which(ths[,"J"] == max(ths[,"J"]))
-  proba_threshold = ths[ind_thr,"prob_threshold"]
-  cat(paste0("Seuil probabilité à : ",proba_threshold,"\n"))
-  
-  plot_spe_sens = ths %>%
-    ggplot(aes(x = prob_threshold, y = Sensitivity)) + 
-    geom_point() + 
-    geom_point(aes(y = Specificity), col = "red")+
-    scale_y_continuous(sec.axis = sec_axis(trans=~ .,name="Specificity"))+
-    theme(
-      axis.title.y = element_text(color = "black", size=15),
-      axis.title.y.right = element_text(color = "red", size=15),
-      text = element_text(size=24)
-    ) + labs(x="Probability of occurrence",title=paste0("Choosen threshold = ",proba_threshold," (J maximization)"))+
-    scale_x_continuous(breaks=seq(0,1,0.1))
-  
-  png(file=paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage,"/",fit,"/specificity_sensibility_threshold.png"), 
-      width=1400, height=800)
-  print(plot_spe_sens)
-  dev.off()
+
 
   # # Tester fiabilité modèle : score de Brier, matrice de confusion et AUC/ROC
   # brier_score = BrierScore(model.glm$finalModel)
@@ -474,10 +471,37 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
   pred_prob <- predict(model.glm, test, type="prob")
   test <- cbind(test, pred_prob)
   
-  # test %>%
-  #   ggplot(aes(y=presence))+
-  #   geom_boxplot()+ylim(c(0,1))
-
+  probs <- seq(0, 1, by = 0.1)
+  ths <- thresholder(model.glm,threshold = probs) #18h40-
+  ind_thr = which(ths[,"J"] == max(ths[,"J"]))
+  
+  plot_spe_sens = ths %>%
+    ggplot(aes(x = prob_threshold, y = Sensitivity)) + 
+    geom_point() + 
+    geom_point(aes(y = Specificity), col = "red")+
+    scale_y_continuous(sec.axis = sec_axis(trans=~ .,name="Specificity"))+
+    theme(
+      axis.title.y = element_text(color = "black", size=15),
+      axis.title.y.right = element_text(color = "red", size=15),
+      text = element_text(size=24)
+    ) + labs(x="Probability of occurrence" 
+             #,
+             #title=paste0("Choosen threshold = ",proba_threshold," (J maximization)")
+             )+
+    scale_x_continuous(breaks=seq(0,1,0.1))
+  
+  png(file=paste0(output_path,"/niches/",type_donnees,"/",nom_court_usage,"/",fit,"/specificity_sensibility_threshold.png"), 
+      width=1400, height=800)
+  print(plot_spe_sens)
+  dev.off()
+  
+  # quand plusieurs thresholds sont possible
+  if(length(ind_thr>1)){
+    proba_threshold = mean(test$presence) # totalement arbitraire ...
+    # J'en suis arrivée à mettre ce threshold
+    # car pour l'usage Couchade, les probabilités sont toutes < 0.12
+  } else{proba_threshold = ths[ind_thr,"prob_threshold"]}
+  cat(paste0("Seuil probabilité à : ",proba_threshold,"\n"))
   
   #après inspection manuelle
   # proba_threshold <- 0.35
@@ -1093,9 +1117,7 @@ col_vars_formate =  col_vars %>%
 #     les 17 axes des AFDM par dimension, les 2 axes d'une ACP globale pondérée 
 #     par dimension ou non)
 
-"ACP_AFDM" #à faire tourner une fois que j'aurais fait tourner le script dans caractmilieu
-
-for(type.de.donnees in c("brute","ACP_sans_ponderation","ACP_avec_ponderation")){
+for(type.de.donnees in c("ACP_sans_ponderation","ACP_avec_ponderation","ACP_ACP","brute")){
   lapply(c("nidification",
            "couchade",
            "paturage",
@@ -1103,18 +1125,23 @@ for(type.de.donnees in c("brute","ACP_sans_ponderation","ACP_avec_ponderation"))
            "VTT",
            "parade"),function(x) ExtractData1Use(usage=x, type_donnees = type.de.donnees))
 }
-# Exemple pour un seul type de prédicteurs
-lapply(c("nidification",
-         "couchade",
-         "paturage",
-         "randonnee_pedestre",
-         "VTT",
-         "parade"),function(x) ExtractData1Use(usage=x, type_donnees = "ACP_sans_ponderation"))
+# # Exemple pour un seul type de prédicteurs
+# lapply(c("nidification",
+#          "couchade",
+#          "paturage",
+#          "randonnee_pedestre",
+#          "VTT",
+#          "parade"),function(x) ExtractData1Use(usage=x, type_donnees = "brute"))
 
 # 2 - Exploitation des données : création modèle (pour l'instant, GLM)
 #     selon le type de prédicteurs environnement utilisé (les variables brutes,
 #     les 17 axes des AFDM par dimension, les 2 axes d'une ACP globale pondérée 
 #     par dimension ou non)
+lapply(liste.usages, 
+         function(x) CreateModelUsage(nom_court_usage=x,
+                                      type_donnees = "ACP_avec_ponderation",
+                                      fit="2_axes"))
+
 set.seed(1)
 for(type.de.donnees in c(#"brute","ACP_AFDM",
                          "ACP_sans_ponderation","ACP_avec_ponderation")){
