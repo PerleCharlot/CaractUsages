@@ -2,7 +2,7 @@
 # Nom : Modélisation des usages
 # Auteure : Perle Charlot
 # Date de création : 09-09-2022
-# Dates de modification : 21-02-2023
+# Dates de modification : 22-02-2023
 
 ### Librairies -------------------------------------
 library(glmmfields)
@@ -217,13 +217,14 @@ ExtractData1Use <- function(usage,
 }
 
 # Crée un ENM (pour 1 usage donné), puis prédit tous les mois
-CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
+CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
   
   # #TEST
-  # nom_court_usage = "Co"
-  # type_donnees = "ACP_sans_ponderation"
-  # ## "ACP_avec_ponderation" "ACP_sans_ponderation" "ACP_AFDM" "brute"
+  # nom_court_usage = "Ni"
+  # type_donnees = "ACP_ACP"
+  # ## "ACP_avec_ponderation" "ACP_sans_ponderation" "ACP_ACP" "brute"
   # fit = "2_axes" # "2_axes" or "all_simple"
+  # algorithme = "glm"
   
   cat("\n Usage ", nom_court_usage," - analyse ",type_donnees,".\n")
   
@@ -496,7 +497,7 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
   dev.off()
   
   # quand plusieurs thresholds sont possible
-  if(length(ind_thr>1)){
+  if(length(ind_thr)>1){
     proba_threshold = mean(test$presence) # totalement arbitraire ...
     # J'en suis arrivée à mettre ce threshold
     # car pour l'usage Couchade, les probabilités sont toutes < 0.12
@@ -542,7 +543,7 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
   ######### A LA ########
 
   # Prédiction spatialisée
-  predUsageMois <- function(mois, algorithme = "glm"){
+  predUsageMois <- function(mois, algorithme){
     # # # TEST
     # mois = "juin"
     # algorithme = "glm"
@@ -607,7 +608,7 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit){
     }
   }
   
-  lapply(liste.mois, predUsageMois)
+  lapply(liste.mois, function(x) predUsageMois(mois = x, algorithme = algorithme))
 }
 
 # Fonction qui retourne des graphiques présentant la distribution 
@@ -941,15 +942,12 @@ predUsageMois_grid <- function(usage, type_donnees, fit, algorithme){
   chemin_espace_ecologique = paste0(output_path,"/niches/",type_donnees,"/",
                                     usage,"/",fit,"/predictions_",algorithme,"/espace_eco/")
   
-  if(!dir.exists(chemin_espace_ecologique)){
-    dir.create(chemin_espace_ecologique)
-  }
   # Créer une grille de valeurs des axes d'ACP
-  # df.env.grid = data.frame(axe1 =  seq(from = MINX, to = MAXX, length.out = 500),
-  #                          axe2 = seq(from = MINY, to = MAXY, length.out = 500))
+  df.env.grid = data.frame(axe1 =  seq(from = MINX, to = MAXX, length.out = 500),
+                           axe2 = seq(from = MINY, to = MAXY, length.out = 500))
   
-  df.env.grid = data.frame(axe1 =  seq(from = -1, to = 1, length.out = 500),
-                           axe2 =seq(from = -1, to = 1, length.out = 500))
+  # df.env.grid = data.frame(axe1 =  seq(from = -1, to = 1, length.out = 500),
+  #                          axe2 =seq(from = -1, to = 1, length.out = 500))
   
   df.env.grid = df.env.grid %>% expand(axe1, axe2)
   names(df.env.grid) = c(paste0("axe1_",type_donnees),paste0("axe2_",type_donnees))
@@ -981,9 +979,9 @@ predUsageMois_grid <- function(usage, type_donnees, fit, algorithme){
 # fonction qui sort les graphiques des niches d'usages
 NichePlot <- function(usage,mois,model,fit, algorithme){
   # #TEST
-  # usage = "Rp"
-  # mois = "juillet"
-  # model = "ACP_sans_ponderation" # "ACP_ACP" ou "ACP_avec_ponderation" ou
+  # usage = "Ni"
+  # mois = "juin"
+  # model = "ACP_ACP" # "ACP_ACP" ou "ACP_avec_ponderation" ou
   # # "ACP_sans_ponderation" ou "brute"
   # fit = "2_axes" # "2_axes" ou all_simple"
   # algorithme = "glm"
@@ -1017,11 +1015,19 @@ NichePlot <- function(usage,mois,model,fit, algorithme){
     r_env = stack(files.env)
     n_axes = dim(r_env)[3]
     names(r_env)[1:n_axes] = paste0("axe",1:n_axes,"_",model)
+  
+    # set grid limits
+    if(type_donnees == "ACP_ACP"){
+      MINX =  round(minValue(r_env[[1]]))
+      MAXX =  round(maxValue(r_env[[1]]))
+      MINY =  round(minValue(r_env[[2]]))
+      MAXY =  round(maxValue(r_env[[2]]))
+    } else{
+      MINX =  MINY = -1
+      MAXX =  MAXY = 1
+    }
     
-    # MINX =  minValue(r_env[[1]])
-    # MAXX =  maxValue(r_env[[1]])
-    # MINY=   minValue(r_env[[2]])
-    # MAXY =  maxValue(r_env[[2]])
+    limits = c(MINX, MAXX, MINY, MAXY)
     
     # Run modèles sur grille conditions envs
     grid_usage = predUsageMois_grid(usage = usage, 
@@ -1031,17 +1037,14 @@ NichePlot <- function(usage,mois,model,fit, algorithme){
     # write.csv2(grid_usage, paste0(chemin_esp_eco,"/dt_niche_potentielle.csv"),row.names=F)
     # TEST sauvegarder en rdata
     grid_usage_rdata = grid_usage
-    save(grid_usage_rdata, file=paste0(chemin_esp_eco,"/dt_niche_potentielle.rdata"))
     
     Pnicheproba = ggplot(grid_usage) +
       aes(x=axe1, y=axe2, z=pred_presence, fill= pred_presence) +
       geom_tile() +
       stat_contour(color="black", size=0.55, bins=2) +
       geom_text_contour(aes(z = round(pred_presence,1)),bins=2, stroke=0.2,size=8) +
-      # xlim(MINX, MAXX)+
-      # ylim(MINY, MAXY) +
-      xlim(-1, 1) +
-      ylim(-1, 1) +
+      xlim(MINX, MAXX)+
+      ylim(MINY, MAXY) +
       scale_fill_gradient2(midpoint=0.5,
                            limits=c(0,1))+
       labs(title=usage, fill ="Probability of\noccurrence",
@@ -1050,7 +1053,9 @@ NichePlot <- function(usage,mois,model,fit, algorithme){
     
     df_Pnicheproba = ggplot_build(Pnicheproba + stat_density2d())$data[[2]]
     seuil = unique(df_Pnicheproba$level)
-    save(seuil, file=paste0(chemin_esp_eco,"/seuil_niche.rdata"))
+
+    save(list= c("grid_usage_rdata","limits", "seuil"), 
+         file=paste0(chemin_esp_eco,"/niche_potentielle.rdata"))
     
     # conserver pmin, pmax et seuil pour être sûr
     if(file.exists(paste0(output_path,"/niches/stock_seuil_niche.csv"))){
@@ -1087,10 +1092,8 @@ NichePlot <- function(usage,mois,model,fit, algorithme){
                           show.legend =F,
                           alpha=0.4)+
       scale_fill_manual(values=c("transparent","transparent"))+
-      # xlim(MINX, MAXX) +
-      # ylim(MINY, MAXY) +
-      xlim(-1, 1)+
-      ylim(-1, 1)+
+      xlim(MINX, MAXX) +
+      ylim(MINY, MAXY) +
       theme_minimal() +
       theme(panel.grid = element_blank(), text = element_text(size=15),
             panel.border = element_rect(fill= "transparent")) +
@@ -1135,28 +1138,15 @@ NichePlot <- function(usage,mois,model,fit, algorithme){
       
       # import data pour dessiner contour niche
       #grid_usage3 <- as.data.frame(fread(paste0(chemin_esp_eco,"/dt_niche_potentielle.csv"),dec=","))
-      load(paste0(chemin_esp_eco,"/dt_niche_potentielle.rdata"))
-      
-      # MINX =min(grid_usage$axe1)
-      # MAXX =max(grid_usage$axe1)
-      # MINY =min(grid_usage$axe2)
-      # MAXY =max(grid_usage$axe2)
-      #a = round(quantile(grid_usage$pred_presence),2)
-      #test_seuil = max(grid_usage_rdata$pred_presence)/3
-      load(file=paste0(chemin_esp_eco,"/seuil_niche.rdata"))
+      load(paste0(chemin_esp_eco,"/niche_potentielle.rdata"))
       
       # TEST pour trouver le bon plot
       dt_test = dt_uses_env[,1:4]
       names(dt_test) = c("obs_usage","pred_presence","axe1","axe2")
       
-      # dt_test2 = dt_test %>% mutate(
-      #   cut_x = cut(axe1, breaks = seq(from = MINX, to = MAXX, length.out = 200), include.lowest = T),
-      #   cut_y = cut(axe2, breaks = seq(from = MINY, to = MAXY, length.out = 200), include.lowest = T)
-      # ) %>%
-      #   group_by(cut_x, cut_y) %>% mutate(n_bin = n())
       dt_test2 = dt_test %>% mutate(
-        cut_x = cut(axe1, breaks = seq(from = -1, to = 1, length.out = 200), include.lowest = T),
-        cut_y = cut(axe2, breaks = seq(from = -1, to = 1, length.out = 200), include.lowest = T)
+        cut_x = cut(axe1, breaks = seq(from = limits[1], to = limits[2], length.out = 200), include.lowest = T),
+        cut_y = cut(axe2, breaks = seq(from = limits[3], to = limits[4], length.out = 200), include.lowest = T)
       ) %>%
         group_by(cut_x, cut_y) %>% mutate(n_bin = n())
       
@@ -1242,10 +1232,8 @@ NichePlot <- function(usage,mois,model,fit, algorithme){
         ggplot(aes(axe1, axe2, color=n_bin, alpha=n_bin)) +
         geom_point()+
         scale_color_distiller(palette ="Spectral")+
-        # xlim(MINX, MAXX)+
-        # ylim(MINY, MAXY)+
-        xlim(-1, 1)+
-        ylim(-1, 1)+
+        xlim(limits[1], limits[2])+
+        ylim(limits[3], limits[4])+
         stat_contour_filled(data=grid_usage2,
                             aes(x=axe1, y=axe2, z=pred_presence),
                             color="black",
@@ -1275,9 +1263,6 @@ NichePlot <- function(usage,mois,model,fit, algorithme){
       rm(grid_usage_rdata, seuil)
       }
 
-
-  
-  
   # # Load prediction uses rasters
   # files = list.files(paste0(output_path,"/niches/",model,"/",usage,"/",fit),".tif$" ,
   #                    full.names = T,recursive=T)
@@ -1450,7 +1435,7 @@ for(type.de.donnees in c("ACP_sans_ponderation","ACP_avec_ponderation","ACP_ACP"
 #     par dimension ou non)
 
 set.seed(1)
-for(type.de.donnees in c(#"brute","ACP_AFDM",
+for(type.de.donnees in c(#"brute","ACP_ACP",
                          "ACP_sans_ponderation","ACP_avec_ponderation")){
   lapply(liste.usages, 
          function(x) CreateModelUsage(nom_court_usage=x,
@@ -1466,13 +1451,19 @@ for(type.de.donnees in c(#"brute","ACP_AFDM",
                                       fit="all_simple"))
 }
 
+
+lapply(liste.usages, function(x) CreateModelUsage(nom_court_usage=x,
+                                                  type_donnees = "ACP_ACP",
+                                                  fit="2_axes",
+                                                  algorithme ="glm"))
+
 # 3 - Visualisation des niches écologiques des usages
 # # pour un usage, sur tous les mois
 # lapply(liste.mois, function(x) NichePlot(usage="Co",mois=x,
 #                                          model="ACP_avec_ponderation",fit="2_axes","algorithme"="glm"))
 
 # faire le ménage
-a = list.dirs(paste0(output_path,"/niches/"), recursive=T)
+a = list.dirs(paste0(output_path,"/niches/ACP_ACP/"), recursive=T)
 lapply(a[grep("espace_eco",a)], function(x) unlink(x, recursive=T))
 
 # pour tous les usages, sur tous les mois
@@ -1485,7 +1476,11 @@ for(u in liste.usages){
   lapply(liste.mois, function(x) NichePlot(usage=u,mois=x,
                                            model="ACP_sans_ponderation",fit="2_axes","algorithme"="glm"))
 }
-
+# pour tous les usages, sur tous les mois
+for(u in liste.usages){
+  lapply(liste.mois, function(x) NichePlot(usage=u,mois=x,
+                                           model="ACP_ACP",fit="2_axes","algorithme"="glm"))
+}
 
 
 # 3 bis - Visualisation dans l'espace écologique (quand > 2 axes)
