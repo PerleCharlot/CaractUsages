@@ -981,7 +981,7 @@ predUsageMois_grid <- function(usage, type_donnees, fit, algorithme){
 # fonction qui sort les graphiques des niches d'usages
 NichePlot <- function(usage,mois,model,fit, algorithme){
   # #TEST
-  # usage = "Pa"
+  # usage = "Rp"
   # mois = "juillet"
   # model = "ACP_sans_ponderation" # "ACP_ACP" ou "ACP_avec_ponderation" ou
   # # "ACP_sans_ponderation" ou "brute"
@@ -1006,6 +1006,8 @@ NichePlot <- function(usage,mois,model,fit, algorithme){
   chemin_esp_eco = paste0(output_path,"/niches/",model,"/",usage,"/",
                           fit,"/predictions_",algorithme,"/espace_eco/")
   
+  if(!dir.exists(chemin_esp_eco)){dir.create(chemin_esp_eco,recursive = T)}
+  
   # à run une seule fois
   if(file.exists(paste0(chemin_esp_eco,"/dt_niche_potentielle.rdata"))){
     cat("Niche computation already done.\n")
@@ -1015,10 +1017,6 @@ NichePlot <- function(usage,mois,model,fit, algorithme){
     r_env = stack(files.env)
     n_axes = dim(r_env)[3]
     names(r_env)[1:n_axes] = paste0("axe",1:n_axes,"_",model)
-    
-    # # Créer valeurs pour fond environnemental
-    # dt_env = data.table(as.data.frame(r_env))
-    # dt_env = na.omit(dt_env)
     
     # MINX =  minValue(r_env[[1]])
     # MAXX =  maxValue(r_env[[1]])
@@ -1053,6 +1051,26 @@ NichePlot <- function(usage,mois,model,fit, algorithme){
     df_Pnicheproba = ggplot_build(Pnicheproba + stat_density2d())$data[[2]]
     seuil = unique(df_Pnicheproba$level)
     save(seuil, file=paste0(chemin_esp_eco,"/seuil_niche.rdata"))
+    
+    # conserver pmin, pmax et seuil pour être sûr
+    if(file.exists(paste0(output_path,"/niches/stock_seuil_niche.csv"))){
+      df_stock <- fread(paste0(output_path,"/niches/stock_seuil_niche.csv"),drop="V1")
+      df_stock_usage = data.frame(type_predicteurs = model,
+                                  usage_niche = usage,
+                                  proba_min = min(grid_usage$pred_presence),
+                                  proba_max = max(grid_usage$pred_presence),
+                                  seuil_niche = seuil,
+                                  milieu = (max(grid_usage$pred_presence) - min(grid_usage$pred_presence))/2 )
+      df_stock <- rbind(df_stock,df_stock_usage)
+    }else{
+      df_stock = data.frame(type_predicteurs = model,
+                                  usage_niche = usage,
+                                  proba_min = min(grid_usage$pred_presence),
+                                  proba_max = max(grid_usage$pred_presence),
+                                  seuil_niche = seuil,
+                                  milieu = (max(grid_usage$pred_presence) - min(grid_usage$pred_presence))/2)
+    }
+    write.csv(df_stock,paste0(output_path,"/niches/stock_seuil_niche.csv"))
     rm(seuil)
     
     png(file=
@@ -1452,6 +1470,11 @@ for(type.de.donnees in c(#"brute","ACP_AFDM",
 # # pour un usage, sur tous les mois
 # lapply(liste.mois, function(x) NichePlot(usage="Co",mois=x,
 #                                          model="ACP_avec_ponderation",fit="2_axes","algorithme"="glm"))
+
+# faire le ménage
+a = list.dirs(paste0(output_path,"/niches/"), recursive=T)
+lapply(a[grep("espace_eco",a)], function(x) unlink(x, recursive=T))
+
 # pour tous les usages, sur tous les mois
 for(u in liste.usages){
   lapply(liste.mois, function(x) NichePlot(usage=u,mois=x,
