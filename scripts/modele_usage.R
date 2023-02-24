@@ -2,7 +2,7 @@
 # Nom : Modélisation des usages
 # Auteure : Perle Charlot
 # Date de création : 09-09-2022
-# Dates de modification : 23-02-2023
+# Dates de modification : 24-02-2023
 
 ### Librairies -------------------------------------
 library(glmmfields)
@@ -27,6 +27,7 @@ library(exactextractr)
 library(patchwork)
 library(metR)
 library(plotROC)
+library(scales)
 ### Fonctions -------------------------------------
 
 # Fonction qui encode des colonnes d'un df en factoriel, si leur nature
@@ -221,7 +222,7 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
   
   # #TEST
   # nom_court_usage = "Ni"
-  # type_donnees = "ACP_ACP"
+  # type_donnees = "ACP_sans_ponderation"
   # ## "ACP_avec_ponderation" "ACP_sans_ponderation" "ACP_ACP" "brute"
   # fit = "2_axes" # "2_axes" or "all_simple"
   # algorithme = "glm"
@@ -1381,8 +1382,6 @@ NicheOverlap <- function(usages, type_donnees, fit, algorithme){
   }
   grid_uses <- do.call(rbind,lapply(usages, getNicheDt)) 
   
-
-  
   # p <- grid_uses %>%
   #   ggplot(aes(x=axe1, y=axe2, z=pred_presence,group=usage, color=usage))+
   #   xlim(-1, 1) +
@@ -1394,74 +1393,129 @@ NicheOverlap <- function(usages, type_donnees, fit, algorithme){
   # Lk et Rp ne sont pas présents. hypothèse : proba max trop faibles (par rapport aux autres) ?
   # Est-ce qu'on pourrait scale entre 0 et 1 toutes les proba ?
   # C'est un tour de passe passe juste pour pouvoir afficher les niches
-  library(scales)
-  test = grid_uses %>%
-    group_by(usage) %>%
-    mutate(proba_scale = rescale(pred_presence))
   
-  # # Analyse Rp, après scale
-  # test %>%
-  #   #filter(proba_scale>0.5) %>%
-  #   filter(usage == "Rp") %>% 
-  #   ggplot(aes(x=axe1, y=axe2, z=proba_scale, fill= proba_scale)) +
-  #   geom_tile() +
-  #   stat_contour(color="black", bins=2)+
-  #   geom_text_contour(aes(z = round(proba_scale,1)),bins=2, stroke=0.2,size=8)+
-  #   scale_fill_gradient2(midpoint=0.5,
-  #                        limits=c(0,1))
-  # # avant scale
-  # test %>%
-  #   filter(usage == "Rp") %>% 
-  #   ggplot(aes(x=axe1, y=axe2, z=pred_presence, fill= pred_presence)) +
-  #   geom_tile() +
-  #   stat_contour(color="black", size=0.55, bins=2)+
-  #   scale_fill_gradient2(midpoint=0.5,
-  #                        limits=c(0,1))
+  data = grid_uses %>%
+    dplyr::group_by(usage) %>%
+    dplyr::mutate(proba_scale = rescale(pred_presence)) %>%
+    as.data.frame()
+  data$usage <- as.factor(data$usage)
+  write.csv(data, paste0(chemin_nicheoverlap,"/dt_6uses_scale.csv"))
   
-  # contours de toutes les niches, mais sans fill
-  test %>%
-    ggplot(aes(x=axe1, y=axe2, z=proba_scale,group=usage, color=usage, fill=usage))+
-    xlim(-1, 1) +
-    ylim(-1, 1) +
-    theme_minimal() +
-    labs(y="Environmental axe 2",x="Environmental axe 1")+
-    geom_contour(bins=2)
-  # contours de toutes les niches, avec fill
-  # (autre façon de faire)
-  P6 = test %>%
-    ggplot(aes(x=axe1, y=axe2, z=proba_scale, fill = usage)) +
-    geom_tile(data = test[test$proba_scale > 0.5,],alpha = 0.4) +
-    stat_contour(geom="contour",
-                 binwidth =  0.5, 
-                 color="black")
-  # difficile à lire pour les 6 usages
+  #petite fonction analyse avant/après scale, pour chaque usage
+  plotCompaScale <- function(nom_court_usage){
+    # # TEST
+    # nom_court_usage = "Ni"
+    
+    Pavt <- data %>% filter(usage == nom_court_usage) %>%
+      ggplot(aes(x=axe1, y=axe2, z=pred_presence, fill= pred_presence)) +
+      geom_tile() +
+      stat_contour(color="black", size=0.55, bins=2)+
+      scale_fill_gradient2(midpoint=0.5,
+                           limits=c(0,1))+
+      labs(title="Probabilité initiale")
+    Papr <- data %>%
+      filter(usage == nom_court_usage) %>%
+      ggplot(aes(x=axe1, y=axe2, z=proba_scale, fill= proba_scale)) +
+      geom_tile() +
+      stat_contour(color="black", bins=2)+
+      scale_fill_gradient2(midpoint=0.5,
+                           limits=c(0,1))+
+      labs(title="Probabilité standardisée")
+    
+    path_compa = paste0(chemin_nicheoverlap,"/comparaison_scale_proba/")
+    if(!dir.exists(path_compa)){dir.create(path_compa,recursive = T)}
+    
     png(file=
-          paste0(chemin_nicheoverlap,"/all_uses.png"),
+          paste0(path_compa,"/",nom_court_usage,".png"),
         width=1400, height=800)
-    plot(P6)
+    plot(Pavt / Papr)
     dev.off()
+  }
+  lapply(usages, plotCompaScale)
   
-  # 3 usages seulement
-  test_test = test %>%
-    filter(usage == "Ni" | usage == "Pa" |usage == "Rp")
-  P3 = test_test %>%
-    ggplot(aes(x=axe1, y=axe2, z=proba_scale, fill = usage)) +
-    geom_tile(data = test_test[test_test$proba_scale > 0.5,],alpha = 0.4) +
-    stat_contour(geom="contour",
-                 binwidth =  0.5, 
-                 color="black")
-  png(file=
-        paste0(chemin_nicheoverlap,"/3_uses.png"),
-      width=1400, height=800)
-  plot(P3)
-  dev.off()
+  # # contours de toutes les niches, mais sans fill
+  # data %>%
+  #   ggplot(aes(x=axe1, y=axe2, z=proba_scale,group=usage, color=usage, fill=usage))+
+  #   xlim(-1, 1) +
+  #   ylim(-1, 1) +
+  #   theme_minimal() +
+  #   labs(y="Environmental axe 2",x="Environmental axe 1")+
+  #   geom_contour(bins=2)
+  
+  # contours des niches, avec fill, à seuil choisi, sur les probabilités scale
+  plotCompaSeuilPs <- function(valeur_seuil, usages_a_montrer){
+    # # TEST
+    # valeur_seuil = 0.5
+    # usages_a_montrer = list("Ni","Co","Pa")
+    
+    data_plot = data %>%
+      filter(usage %in% usages_a_montrer)
+    
+    P = data_plot %>%
+      ggplot(aes(x=axe1, y=axe2, z=proba_scale, fill = usage)) +
+      geom_tile(data = data_plot[data_plot$proba_scale > valeur_seuil,],alpha = 0.4) +
+      stat_contour(geom="contour",
+                   breaks =  valeur_seuil, 
+                   color="black")
+    
+    seuil = gsub(pattern='[.]',replacement="",x=as.character(valeur_seuil))
+    us = paste0(usages_a_montrer,collapse="_")
+    
+    path_compa = paste0(chemin_nicheoverlap,"/comparaison_seuil_proba/proba_scale/seuil_",us)
+    if(!dir.exists(path_compa)){dir.create(path_compa,recursive = T)}
+    
+    png(file=
+          paste0(path_compa,"/",seuil,".png"),
+        width=1400, height=800)
+    plot(P)
+    dev.off()
+  }
+  for(u in c(list(usages),list(c("Ni","Rp","Pa")))){
+    lapply(seq(0.1,0.9,0.1), function(x) plotCompaSeuilPs(valeur_seuil = x, usages_a_montrer = u))
+  }
+  
+  # contours des niches, avec fill, à seuil choisi, sur les probabilités initiales
+  plotCompaSeuilP <- function(valeur_seuil, usages_a_montrer){
+    # # TEST
+    # valeur_seuil = 0.5
+    # usages_a_montrer = list("Ni","Co","Pa")
+    
+    data_plot = data %>%
+      filter(usage %in% usages_a_montrer)
+    
+    P = data_plot %>%
+      ggplot(aes(x=axe1, y=axe2, z=pred_presence, fill = usage)) +
+      geom_tile(data = data_plot[data_plot$pred_presence > valeur_seuil,],alpha = 0.4) +
+      stat_contour(geom="contour",
+                   breaks =  valeur_seuil, 
+                   color="black")
+    
+    seuil = gsub(pattern='[.]',replacement="",x=as.character(valeur_seuil))
+    us = paste0(usages_a_montrer,collapse="_")
+    
+    path_compa = paste0(chemin_nicheoverlap,"/comparaison_seuil_proba/proba_init/seuil_",us)
+    if(!dir.exists(path_compa)){dir.create(path_compa,recursive = T)}
+    
+    png(file=
+          paste0(path_compa,"/",seuil,".png"),
+        width=1400, height=800)
+    plot(P)
+    dev.off()
+  }
+  for(u in c(list(usages),list(c("Ni","Rp","Pa")))){
+    lapply(seq(0.1,0.9,0.1), function(x) plotCompaSeuilP(valeur_seuil = x, usages_a_montrer = u))
+  }
+  # le seuil 0.15 pour 3 usages est pertinent pour avoir une continuité de niche en Ni
+  plotCompaSeuilP(0.15,list("Ni","Rp","Pa"))
+
   
   # TODO: réfléchir à comment ajouter espace env réalisé
+  # TODO : faire tourner pour avec_ponderation + ACP_ACP
   
   # ggplot(data = test, aes(x = axe1, y = axe2, z = proba_scale, fill = usage)) +
   #   stat_contour(data = test[test$usage == "Ni",],
   #                bins = 2, alpha = 0.3, geom = "polygon") +
-  #   stat_contour(data = test[test$usage == "Pa",], 
+  #   stat_contour(data = test[test$usage == "Pa",],
   #                bins = 2, alpha = 0.3, geom = "polygon") +
   #   stat_contour(data = test[test$usage == "Rp",],
   #                bins = 2, alpha = 0.3, geom = "polygon") +
