@@ -2,7 +2,7 @@
 # Nom : Modélisation des usages
 # Auteure : Perle Charlot
 # Date de création : 09-09-2022
-# Dates de modification : 24-02-2023
+# Dates de modification : 27-02-2023
 
 ### Librairies -------------------------------------
 library(glmmfields)
@@ -28,6 +28,8 @@ library(patchwork)
 library(metR)
 library(plotROC)
 library(scales)
+library(magick)
+
 ### Fonctions -------------------------------------
 
 # Fonction qui encode des colonnes d'un df en factoriel, si leur nature
@@ -1360,12 +1362,13 @@ NichePlot <- function(usage,mois,type_donnees,fit, algorithme){
   # }
 }
 
+# ACP_ACP doesn't work
 NicheOverlap <- function(usages, type_donnees, fit, algorithme){
-  # TEST
-  usages = c("Ni","Lk","Pa","Co","Rp","Vt")
-  type_donnees = "ACP_sans_ponderation"
-  fit = "2_axes"
-  algorithme = "glm"
+  # # TEST
+  # usages = c("Ni","Lk","Pa","Co","Rp","Vt")
+  # type_donnees = "ACP_sans_ponderation"
+  # fit = "2_axes"
+  # algorithme = "glm"
   
   # Create storage place
   chemin_nicheoverlap = paste0(output_path,"/niches/",type_donnees,
@@ -1412,7 +1415,8 @@ NicheOverlap <- function(usages, type_donnees, fit, algorithme){
       stat_contour(color="black", size=0.55, bins=2)+
       scale_fill_gradient2(midpoint=0.5,
                            limits=c(0,1))+
-      labs(title="Probabilité initiale")
+      labs(title=paste0("Probabilité initiale : ",nom_court_usage))+
+      theme(text = element_text(size=20))
     Papr <- data %>%
       filter(usage == nom_court_usage) %>%
       ggplot(aes(x=axe1, y=axe2, z=proba_scale, fill= proba_scale)) +
@@ -1420,7 +1424,8 @@ NicheOverlap <- function(usages, type_donnees, fit, algorithme){
       stat_contour(color="black", bins=2)+
       scale_fill_gradient2(midpoint=0.5,
                            limits=c(0,1))+
-      labs(title="Probabilité standardisée")
+      labs(title=paste0("Probabilité standardisée : ",nom_court_usage))+
+      theme(text = element_text(size=20))
     
     path_compa = paste0(chemin_nicheoverlap,"/comparaison_scale_proba/")
     if(!dir.exists(path_compa)){dir.create(path_compa,recursive = T)}
@@ -1442,21 +1447,36 @@ NicheOverlap <- function(usages, type_donnees, fit, algorithme){
   #   labs(y="Environmental axe 2",x="Environmental axe 1")+
   #   geom_contour(bins=2)
   
+  # garder les mêmes couleurs pour chaque usage
+  color_uses = data.frame(
+    nom_us = c("Couchade","Lek","Nidification","Pâturage","Randonnée","VTT"),
+    usage = c("Co","Lk","Ni","Pa","Rp","Vt"),
+    nom_us_long = c("couchade","parade","nidification","paturage","randonnee_pedestre","VTT"),
+    col_us = hue_pal()(6))
+  
   # contours des niches, avec fill, à seuil choisi, sur les probabilités scale
   plotCompaSeuilPs <- function(valeur_seuil, usages_a_montrer){
     # # TEST
-    # valeur_seuil = 0.5
-    # usages_a_montrer = list("Ni","Co","Pa")
+    # valeur_seuil = 0.2
+    # usages_a_montrer = c("Ni","Rp","Pa")
     
     data_plot = data %>%
       filter(usage %in% usages_a_montrer)
+    
+    mypalette =  color_uses %>%
+      filter(usage %in% usages_a_montrer)
+    mypalette2 <- setNames(mypalette$col_us, 
+                          mypalette$usage)
     
     P = data_plot %>%
       ggplot(aes(x=axe1, y=axe2, z=proba_scale, fill = usage)) +
       geom_tile(data = data_plot[data_plot$proba_scale > valeur_seuil,],alpha = 0.4) +
       stat_contour(geom="contour",
                    breaks =  valeur_seuil, 
-                   color="black")
+                   color="black")+
+      scale_fill_manual(values=mypalette2)+
+      labs(title = paste0("Valeur contour niche : ",valeur_seuil))+
+      theme(text = element_text(size=20))
     
     seuil = gsub(pattern='[.]',replacement="",x=as.character(valeur_seuil))
     us = paste0(usages_a_montrer,collapse="_")
@@ -1471,24 +1491,32 @@ NicheOverlap <- function(usages, type_donnees, fit, algorithme){
     dev.off()
   }
   for(u in c(list(usages),list(c("Ni","Rp","Pa")))){
-    lapply(seq(0.1,0.9,0.1), function(x) plotCompaSeuilPs(valeur_seuil = x, usages_a_montrer = u))
+    lapply(seq(0.1,0.9,0.05), function(x) plotCompaSeuilPs(valeur_seuil = x, usages_a_montrer = u))
   }
   
   # contours des niches, avec fill, à seuil choisi, sur les probabilités initiales
   plotCompaSeuilP <- function(valeur_seuil, usages_a_montrer){
     # # TEST
     # valeur_seuil = 0.5
-    # usages_a_montrer = list("Ni","Co","Pa")
+    # usages_a_montrer = usages
     
     data_plot = data %>%
       filter(usage %in% usages_a_montrer)
+    
+    mypalette =  color_uses %>%
+      filter(usage %in% usages_a_montrer)
+    mypalette2 <- setNames(mypalette$col_us, 
+                           mypalette$usage)
     
     P = data_plot %>%
       ggplot(aes(x=axe1, y=axe2, z=pred_presence, fill = usage)) +
       geom_tile(data = data_plot[data_plot$pred_presence > valeur_seuil,],alpha = 0.4) +
       stat_contour(geom="contour",
                    breaks =  valeur_seuil, 
-                   color="black")
+                   color="black")+
+      scale_fill_manual(values=mypalette2)+
+      labs(title = paste0("Valeur contour niche : ",valeur_seuil))+
+      theme(text = element_text(size=20))
     
     seuil = gsub(pattern='[.]',replacement="",x=as.character(valeur_seuil))
     us = paste0(usages_a_montrer,collapse="_")
@@ -1503,11 +1531,32 @@ NicheOverlap <- function(usages, type_donnees, fit, algorithme){
     dev.off()
   }
   for(u in c(list(usages),list(c("Ni","Rp","Pa")))){
-    lapply(seq(0.1,0.9,0.1), function(x) plotCompaSeuilP(valeur_seuil = x, usages_a_montrer = u))
+    lapply(seq(0.1,0.9,0.05), function(x) plotCompaSeuilP(valeur_seuil = x, usages_a_montrer = u))
   }
-  # le seuil 0.15 pour 3 usages est pertinent pour avoir une continuité de niche en Ni
-  plotCompaSeuilP(0.15,list("Ni","Rp","Pa"))
+  # # le seuil 0.15 pour 3 usages est pertinent pour avoir une continuité de niche en Ni
+  # plotCompaSeuilP(0.15,list("Ni","Rp","Pa"))
+  
+  
+  dirs_img_niche = list.dirs(paste0(chemin_nicheoverlap,"/comparaison_seuil_proba/"), 
+                             recursive = T)
+  dirs_img_niche = dirs_img_niche[grep("/seuil_",dirs_img_niche)]
+  
+  # Création d'un gif
+  CreateGif <- function(liste_dirs_img){
+    
+    # # TEST
+    # liste_dirs_img = dirs_img_niche[1]
+    
+    imgs <- list.files(liste_dirs_img, full.names = TRUE, '.png')
+    img_list <- lapply(imgs, image_read)
+    img_joined <- image_join(img_list)
+    img_animated <- image_animate(img_joined, delay = 100)
+    image_write(image = img_animated,
+                path = paste0(liste_dirs_img,
+                              "/variation_seuil.gif"))
+  }
 
+  lapply(dirs_img_niche, CreateGif)
   
   # TODO: réfléchir à comment ajouter espace env réalisé
   # TODO : faire tourner pour avec_ponderation + ACP_ACP
@@ -1544,9 +1593,6 @@ NicheOverlap <- function(usages, type_donnees, fit, algorithme){
   #   theme_minimal() +
   #   labs(y="Probability of occurrence",x="Environmental axe 1")+
   #   facet_grid(. ~ usage)
-  
-
-  
 }
 
 ### Constantes -------------------------------------
@@ -1672,6 +1718,11 @@ for(u in liste.usages){
                                            model="ACP_ACP",fit="2_axes","algorithme"="glm"))
 }
 
+# 4 - chevauchement
+lapply(c("ACP_sans_ponderation","ACP_avec_ponderation"), function(x) NicheOverlap(usages=liste.usages,
+                                                                     type_donnees = x,
+                                                                     fit="2_axes",
+                                                                     algorithme = "glm"))
 
 # 3 bis - Visualisation dans l'espace écologique (quand > 2 axes)
 lapply(liste.usages, function(x) EspEco(usage = x, 
