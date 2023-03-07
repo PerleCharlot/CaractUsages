@@ -1136,24 +1136,26 @@ predUsageMois_grid <- function(usage, type_donnees, fit, algorithme,range){
   # Appeler modèle
   load(paste0(output_path,"/niches/",type_donnees,"/", usage,
               "/",fit,"/modele_",algorithme,".rdata"))
-  # Prédire sur cette grille
-  if(algorithme == "glm"){
-    model.used <- model.glm
-    rm(model.glm)
-  }
-  if(algorithme == "rf"){
-    model.used <- model.rf
-    rm(model.rf)
-  }
-  if(algorithme == "gam"){
-    model.used <- model.gam
-    rm(model.gam)
-  }
+  
+  model.used <- model.fit
+  # # Prédire sur cette grille
+  # if(algorithme == "glm"){
+  #   model.used <- model.glm
+  #   rm(model.glm)
+  # }
+  # if(algorithme == "rf"){
+  #   model.used <- model.rf
+  #   rm(model.rf)
+  # }
+  # if(algorithme == "gam"){
+  #   model.used <- model.gam
+  #   rm(model.gam)
+  # }
   
   prob_grid <- predict(model.used, df.env.grid, type="prob")
   # Retourner probabilité prédiction présence
   prob_grid = cbind(df.env.grid, prob_pres = prob_grid$presence)
-  names(prob_grid) = c("axe1","axe2","pred_presence")
+  names(prob_grid) = c("axe1","axe2","proba_presence")
   rm(model.used)
   return(prob_grid)
 }
@@ -1163,7 +1165,7 @@ NichePlot <- function(usage,mois,type_donnees,fit, algorithme){
   # #TEST
   # usage = "Ni"
   # mois = "juin"
-  # type_donnees = "ACP_sans_ponderation" # "ACP_ACP" ou "ACP_avec_ponderation" ou
+  # type_donnees = "ACP_avec_ponderation" # "ACP_ACP" ou "ACP_avec_ponderation" ou
   # # "ACP_sans_ponderation" ou "brute"
   # fit = "2_axes" # "2_axes" ou all_simple"
   # algorithme = "glm"
@@ -1222,10 +1224,10 @@ NichePlot <- function(usage,mois,type_donnees,fit, algorithme){
     grid_usage_rdata = grid_usage
     
     Pnicheproba = ggplot(grid_usage) +
-      aes(x=axe1, y=axe2, z=pred_presence, fill= pred_presence) +
+      aes(x=axe1, y=axe2, z=proba_presence, fill= proba_presence) +
       geom_tile() +
       stat_contour(color="black", size=0.55, bins=2) +
-      geom_text_contour(aes(z = round(pred_presence,1)),bins=2, stroke=0.2,size=8) +
+      geom_text_contour(aes(z = round(proba_presence,1)),bins=2, stroke=0.2,size=8) +
       xlim(MINX, MAXX)+
       ylim(MINY, MAXY) +
       scale_fill_gradient2(midpoint=0.5,
@@ -1245,18 +1247,18 @@ NichePlot <- function(usage,mois,type_donnees,fit, algorithme){
       df_stock <- fread(paste0(output_path,"/niches/stock_seuil_niche.csv"),drop="V1")
       df_stock_usage = data.frame(type_predicteurs = type_donnees,
                                   usage_niche = usage,
-                                  proba_min = min(grid_usage$pred_presence),
-                                  proba_max = max(grid_usage$pred_presence),
+                                  proba_min = min(grid_usage$proba_presence),
+                                  proba_max = max(grid_usage$proba_presence),
                                   seuil_niche = seuil,
-                                  milieu = (max(grid_usage$pred_presence) - min(grid_usage$pred_presence))/2 )
+                                  milieu = (max(grid_usage$proba_presence) - min(grid_usage$proba_presence))/2 )
       df_stock <- rbind(df_stock,df_stock_usage)
     }else{
       df_stock = data.frame(type_predicteurs = type_donnees,
                                   usage_niche = usage,
-                                  proba_min = min(grid_usage$pred_presence),
-                                  proba_max = max(grid_usage$pred_presence),
+                                  proba_min = min(grid_usage$proba_presence),
+                                  proba_max = max(grid_usage$proba_presence),
                                   seuil_niche = seuil,
-                                  milieu = (max(grid_usage$pred_presence) - min(grid_usage$pred_presence))/2)
+                                  milieu = (max(grid_usage$proba_presence) - min(grid_usage$proba_presence))/2)
     }
     write.csv(df_stock,paste0(output_path,"/niches/stock_seuil_niche.csv"))
     rm(seuil)
@@ -1269,7 +1271,7 @@ NichePlot <- function(usage,mois,type_donnees,fit, algorithme){
     
     Pnicheenvlp = ggplot() +
       stat_contour_filled(data=grid_usage,
-                          aes(x=axe1, y=axe2, z=pred_presence),
+                          aes(x=axe1, y=axe2, z=proba_presence),
                           color="black",
                           size=0.55, bins=2,
                           show.legend =F,
@@ -1302,7 +1304,7 @@ NichePlot <- function(usage,mois,type_donnees,fit, algorithme){
       cat(paste0("Usage ",usage, " en cours, pour le mois de ",mois," - ",type_donnees,"\n"))
       # RAster usage
       r_uses = stack(files[grep(mois,files)])
-      names(r_uses) = c(paste0(c("obs","pred"),"_",usage))
+      names(r_uses) = c(paste0(c("obs","proba","pred"),"_",usage))
       plot(r_uses, colNA= 'black')
       # Raster environnement, mensuel
       files.env = list.files(paste0(gitCaractMilieu,"/output/ACP/",path_predicteurs,"/pred_month/",mois),
@@ -1323,9 +1325,9 @@ NichePlot <- function(usage,mois,type_donnees,fit, algorithme){
       #grid_usage3 <- as.data.frame(fread(paste0(chemin_esp_eco,"/dt_niche_potentielle.csv"),dec=","))
       load(paste0(chemin_esp_eco,"/niche_potentielle.rdata"))
       
-      # TEST pour trouver le bon plot
-      dt_test = dt_uses_env[,1:4]
-      names(dt_test) = c("obs_usage","pred_presence","axe1","axe2")
+      # Pas top cette façon d'indexer les colonnes à garder
+      dt_test = dt_uses_env[,1:5]
+      names(dt_test) = c("obs_usage","proba_presence","pred_presence","axe1","axe2")
       
       dt_test2 = dt_test %>% mutate(
         cut_x = cut(axe1, breaks = seq(from = limits[1], to = limits[2], length.out = 200), include.lowest = T),
@@ -1393,7 +1395,7 @@ NichePlot <- function(usage,mois,type_donnees,fit, algorithme){
       # (ça m'arrange car exclut le gros carré)
       
       # densité condition env pour les présences observées + contour niche 
-      grid_usage2 = grid_usage_rdata %>% filter(pred_presence >= seuil)
+      grid_usage2 = grid_usage_rdata %>% filter(proba_presence >= seuil)
       
       # ggplot(grid_usage2) +
       #   aes(x=axe1, y=axe2, z=pred_presence, fill= pred_presence) +
@@ -1418,7 +1420,7 @@ NichePlot <- function(usage,mois,type_donnees,fit, algorithme){
         xlim(limits[1], limits[2])+
         ylim(limits[3], limits[4])+
         stat_contour_filled(data=grid_usage2,
-                            aes(x=axe1, y=axe2, z=pred_presence),
+                            aes(x=axe1, y=axe2, z=proba_presence),
                             color="black",
                             size=0.55, bins=1,
                             show.legend =T,
@@ -1546,7 +1548,7 @@ NichePlot <- function(usage,mois,type_donnees,fit, algorithme){
 NicheOverlap <- function(usages, type_donnees, fit, algorithme){
   # # TEST
   # usages = c("Ni","Lk","Pa","Co","Rp","Vt")
-  # type_donnees = "ACP_sans_ponderation"
+  # type_donnees = "ACP_avec_ponderation"
   # fit = "2_axes"
   # algorithme = "glm"
   
@@ -1572,7 +1574,6 @@ NicheOverlap <- function(usages, type_donnees, fit, algorithme){
   MAXY =  round(max(grid_uses$axe2))
   limits_plot =c(MINX,MAXX,MINY,MAXY)
   
-  
   # p <- grid_uses %>%
   #   ggplot(aes(x=axe1, y=axe2, z=pred_presence,group=usage, color=usage))+
   #   xlim(-1, 1) +
@@ -1587,7 +1588,7 @@ NicheOverlap <- function(usages, type_donnees, fit, algorithme){
   
   data = grid_uses %>%
     dplyr::group_by(usage) %>%
-    dplyr::mutate(proba_scale = rescale(pred_presence)) %>%
+    dplyr::mutate(proba_scale = rescale(proba_presence)) %>%
     as.data.frame()
   data$usage <- as.factor(data$usage)
   write.csv(data, paste0(chemin_nicheoverlap,"/dt_6uses_scale.csv"))
@@ -1601,7 +1602,7 @@ NicheOverlap <- function(usages, type_donnees, fit, algorithme){
     # range= limits_plot
     
     Pavt <- data %>% filter(usage == nom_court_usage) %>%
-      ggplot(aes(x=axe1, y=axe2, z=pred_presence, fill= pred_presence)) +
+      ggplot(aes(x=axe1, y=axe2, z=proba_presence, fill= proba_presence)) +
       geom_tile() +
       xlim(c(range[1:2])) +
       ylim(c(range[3:4])) +
@@ -1707,8 +1708,8 @@ NicheOverlap <- function(usages, type_donnees, fit, algorithme){
                            mypalette$usage)
     
     P = data_plot %>%
-      ggplot(aes(x=axe1, y=axe2, z=pred_presence, fill = usage)) +
-      geom_tile(data = data_plot[data_plot$pred_presence > valeur_seuil,],alpha = 0.4) +
+      ggplot(aes(x=axe1, y=axe2, z=proba_presence, fill = usage)) +
+      geom_tile(data = data_plot[data_plot$proba_presence > valeur_seuil,],alpha = 0.4) +
       stat_contour(geom="contour",
                    breaks =  valeur_seuil, 
                    color="black")+
@@ -1757,10 +1758,6 @@ NicheOverlap <- function(usages, type_donnees, fit, algorithme){
   }
 
   lapply(dirs_img_niche, function(x) CreateGif(x, name_gif = "variation_seuil"))
-  
-  
-  CreateGif(paste0(path_out,"/graphiques_exploratoires/test"), "visu_mat_conf")
-  CreateGif(paste0(path_out,"/graphiques_exploratoires/train"), "visu_mat_conf")
   
   # TODO: réfléchir à comment ajouter espace env réalisé
   # TODO : faire tourner pour avec_ponderation + ACP_ACP
@@ -1887,17 +1884,6 @@ for(type.de.donnees in c("ACP_sans_ponderation","ACP_avec_ponderation","ACP_ACP"
                                       fit="2_axes",
                                       algorithme = "glm"))
 }
-
-
-
-# for(type.de.donnees in c(#"brute","ACP_AFDM",
-#   "ACP_sans_ponderation","ACP_avec_ponderation")){
-#   lapply(liste.usages, 
-#          function(x) CreateModelUsage(nom_court_usage=x,
-#                                       type_donnees = type.de.donnees,
-#                                       fit="all_simple"))
-# }
-
 
 lapply(liste.usages, function(x) CreateModelUsage(nom_court_usage=x,
                                                   type_donnees = "ACP_ACP",
