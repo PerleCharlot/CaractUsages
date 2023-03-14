@@ -8,6 +8,7 @@
 library(data.table)
 library(dplyr)
 library(ggplot2)
+library(patchwork)
 ### Fonctions -------------------------------------
 
 ### Constantes -------------------------------------
@@ -35,126 +36,190 @@ liste.usages = c("Ni","Lk","Co","Pa","Rp","Vt")
 ##### Schoener D abond obs #####
 # corrigées par disponibilité (Broennimann 2012), env grid
 
-#TEST
-usage = "Ni"
-mois = "juin"
-type_donnees = "ACP_avec_ponderation" # "ACP_ACP" ou "ACP_avec_ponderation" ou
-# "ACP_sans_ponderation" ou "brute"
-fit = "2_axes" # "2_axes" ou all_simple"
-algorithme = "glm"
-chemin_esp_eco = paste0(output_path,"/niches/",type_donnees,"/",usage,"/",
-                        fit,"/predictions_",algorithme,"/espace_eco/")
+GridObs <- function(usage,  mois,
+                    type_donnees = "ACP_avecponderation", algorithme = "glm", fit = "2_axes"){
+  
+  #TEST
+  usage = liste.usages[1]
+  mois = liste.mois[2]
+  type_donnees = "ACP_avec_ponderation" # "ACP_ACP" ou "ACP_avec_ponderation" ou
+  # "ACP_sans_ponderation" ou "brute"
+  fit = "2_axes" # "2_axes" ou all_simple"
+  algorithme = "glm"
+  
+  # Conserver les chemins
+  chemin_esp_eco = paste0(output_path,"/niches/",type_donnees,"/",usage,"/",
+                          fit,"/predictions_",algorithme,"/espace_eco/")
+  chemin_pred = paste0(output_path,"/niches/",type_donnees,"/",usage,"/",
+                       fit,"/predictions_",algorithme,"/")
+  
+  # import data pour dessiner contour niche
+  load(paste0(chemin_esp_eco,"/niche_potentielle.rdata")) # load grid_usage_rdata limits seuil
+  # import data du mois en cours
+  dt_uses_env <- fread(paste0(chemin_pred,"/dt_probUs_condiEnv_",mois,".csv"), dec=",")
+  names(dt_uses_env)[1:3] = c("obs_usage","proba_presence","pred_presence")
+  # correction noms colonnes
+  if(fit == "2_axes"){
+    ncols = 2
+    ind_endaxe = grep("axe2", names(dt_uses_env))
+    ind_x = grep("x$", names(dt_uses_env))
+    ind_y = grep("y$", names(dt_uses_env))
+    dt_uses_env = dt_uses_env[,c(1:ind_endaxe,ind_x, ind_y), with=FALSE]
+    names(dt_uses_env)[4:grep("axe2", names(dt_uses_env))] = paste0("axe",seq(1,ncols))
+  }else{
+    ncols = length(grep("axe", names(dt_uses_env)))
+    names(dt_uses_env)[4:grep(paste0("axe",ncols), names(dt_uses_env))] = paste0("axe",seq(1,ncols))
+  }
+  # Filtrer entre -1 et 1
+  dt_uses_env2 = dt_uses_env %>% 
+    filter( axe1 >= limits[1] ) %>%
+    filter( axe2 >= limits[3] ) %>%
+    filter( axe1 <= limits[2] ) %>%
+    filter( axe2 <= limits[4] ) 
+  
+  # Grid 100 * 100
+  dt_uses_env_grid2 = dt_uses_env2 %>% mutate(
+    cut_x = cut(axe1, breaks = round(seq(from = limits[1], to = limits[2], length.out = 100),2),
+                include.lowest = T),
+    cut_y = cut(axe2, breaks = round(seq(from = limits[3], to = limits[4], length.out = 100),2),
+                include.lowest = T)
+  ) %>%
+    group_by(cut_x, cut_y, .drop = FALSE) %>% 
+    summarise(n_bin = n(), 
+              mean_proba = mean(proba_presence, na.rm=T ),
+              sd_proba = sd(proba_presence),
+              sum_obs = sum(obs_usage))
+  
+  # correction des densités par la disponibilité
+  MAX_N = max(dt_uses_env_grid2$n_bin,na.rm=T)
+  MAX_nobs = max(dt_uses_env_grid2$sum_obs, na.rm=T)
+  dt_uses_env_grid2$e_ij <- dt_uses_env_grid2$n_bin / MAX_N
+  dt_uses_env_grid2$e_ij[dt_uses_env_grid2$mean_proba == "NaN"] <- NA
+  dt_uses_env_grid2$o_ij <- dt_uses_env_grid2$sum_obs / MAX_nobs
+  dt_uses_env_grid2$o_ij[dt_uses_env_grid2$mean_proba == "NaN"] <- NA
+  max_oe = max(dt_uses_env_grid2$o_ij/dt_uses_env_grid2$e_ij, na.rm=T)
+  dt_uses_env_grid2$z_ij <- (dt_uses_env_grid2$o_ij / dt_uses_env_grid2$e_ij) / max_oe
+  
+  # # AVEC GEOM_RASTER
+  # # available environment
+  # Pe = dt_grid_test %>% 
+  #   ggplot(aes(cut_x, cut_y, fill=e_ij, alpha = e_ij)) +
+  #   geom_raster() +
+  #   scale_fill_distiller(palette ="Spectral")
+  # # density observation
+  # Po = dt_grid_test %>% 
+  #   ggplot(aes(cut_x, cut_y, fill=o_ij, alpha=o_ij)) +
+  #   geom_raster() +
+  #   scale_fill_distiller(palette ="Spectral")
+  # # densité obs en fonction disponibilité env
+  # Poe = dt_grid_test %>% 
+  #   ggplot(aes(cut_x, cut_y, fill=z_ij, alpha=z_ij)) +
+  #   geom_raster() +
+  #   scale_fill_distiller(palette ="Spectral")
+  
+  # avec des points (à la place de carrés)
+  xlabels <- levels(dt_uses_env_grid2$cut_x)
+  ind_remove = c(seq(2, length(xlabels)/2, 1), seq(round(length(xlabels)/2)+1, length(xlabels)-1, 1))
+  xlabels[ind_remove ] <- ""
+  
+  P1 =  dt_uses_env_grid2 %>% 
+    ggplot(aes(cut_x, cut_y, colour=e_ij)) +
+    geom_point(size=2) +
+    scale_colour_distiller(palette ="Spectral",na.value = "transparent") +
+    theme(#axis.ticks.x = element_blank(),
+          legend.position = "none") +
+    labs(x="Axe 1",y="Axe 2",  title = "Environment Availibity")+
+  theme(axis.text.x= element_text(angle = 45, hjust = 1))+
+    scale_x_discrete(labels = xlabels)+
+    scale_y_discrete(labels = xlabels)
 
-# import data pour dessiner contour niche
-load(paste0(chemin_esp_eco,"/niche_potentielle.rdata")) # load grid_usage_rdata limits
+  P2 =  dt_uses_env_grid2 %>% 
+    ggplot(aes(cut_x, cut_y, colour = ifelse(o_ij > 0 , o_ij, NA))) +
+    geom_point( size=2) +
+    scale_colour_distiller(palette ="Spectral",na.value = "transparent") +
+    theme(#axis.ticks.x = element_blank(),
+      legend.position = "none") +
+    labs(x="Axe 1",y="Axe 2",  title = "Density of Observations")+
+    theme(axis.text.x= element_text(angle = 45, hjust = 1))+
+    scale_x_discrete(labels = xlabels)+
+    scale_y_discrete(labels = xlabels)
+  
+  # bugs : z = 1 ? pour des pixels où peu d'obs + env rare
+  # quand pixel env le plus rare avec 1 seule observation de présence -> z = 1
+  
+  # z = 0 lorsque obs < 2
+  stock = dt_uses_env_grid2
+  nb_corr = length(dt_uses_env_grid2$z_ij[dt_uses_env_grid2$sum_obs < 2 & dt_uses_env_grid2$z_ij == 1])
+  cat(paste0("\nz corrigé pour ",nb_corr," cellules."))
+  dt_uses_env_grid2$z_ij[dt_uses_env_grid2$sum_obs < 2 & dt_uses_env_grid2$z_ij == 1] <- 0
+  
+  # avec des points (à la place de carrés)
+  P3 = dt_uses_env_grid2 %>% 
+    ggplot(aes(cut_x, cut_y, colour=ifelse(z_ij > 0 , z_ij, NA))) +
+    geom_point(size=2) +
+    scale_colour_distiller(palette ="Spectral",na.value = "transparent") +
+    labs(x="Axe 1",y="Axe 2",  title="Occupancy",colour = "Corrected Density\nof Observations")+
+    theme(axis.text.x= element_text(angle = 45, hjust = 1))+
+    scale_x_discrete(labels = xlabels)+
+    scale_y_discrete(labels = xlabels)
+  
+  P2 + P1 + P3+ plot_layout(nrow = 2, ncol=2) 
+  
+  # TODO : save plot
+  
+  return(dt_uses_env_grid2) #pour ensuite calculer D Schoener sur z
+  
+  # densité condition env pour les présences observées + contour niche 
+  dt_uses_env_grid = dt_uses_env %>% mutate(
+    cut_x = cut(axe1, breaks = seq(from = limits[1], to = limits[2], length.out = 100), include.lowest = T),
+    cut_y = cut(axe2, breaks = seq(from = limits[3], to = limits[4], length.out = 100), include.lowest = T)
+  ) %>%
+    group_by(cut_x, cut_y) %>%
+    mutate(n_bin = n(),
+           mean_proba = mean(proba_presence),
+           sd_proba = sd(proba_presence))
+  grid_usage2 = grid_usage_rdata %>% filter(proba_presence >= seuil)
+  grid_usage2 = grid_usage_rdata
+  dt_uses_env_grid$obs_usage[dt_uses_env_grid$obs_usage == 0.5] <- 1
+  # New facet label names
+  supp.labs <- c("Absence", "Presence")
+  names(supp.labs) <- c(0, 1)
+  
+  P =  dt_uses_env_grid %>% 
+    ggplot(aes(axe1, axe2, color=n_bin, alpha=n_bin)) +
+    geom_point()+
+    scale_color_distiller(palette ="Spectral")+
+    xlim(limits[1], limits[2])+
+    ylim(limits[3], limits[4])+
+    stat_contour_filled(data=grid_usage2,
+                        aes(x=axe1, y=axe2, z=proba_presence),
+                        color="black",
+                        size=0.55, bins=2,
+                        show.legend =T,
+                        alpha=0.1)+
+    theme(panel.background = element_rect(fill="white"),
+          panel.grid.major = element_line(colour="grey")) +
+    guides(alpha = FALSE)+
+    theme(text = element_text(size=15)) +
+    facet_grid(~ obs_usage,labeller = labeller(obs_usage = supp.labs))
 
-chemin_pred = paste0(output_path,"/niches/",type_donnees,"/",usage,"/",
-                     fit,"/predictions_",algorithme,"/")
+  # TODO : save plot
+  
+  # TODO: test function for 1 use & then for several uses
+  # TODO: compute Schoener D
+  
+}
 
-dt_uses_env <- fread(paste0(chemin_pred,"/dt_probUs_condiEnv_",mois,".csv"), dec=",")
-dt_test = dt_uses_env[,1:5]
-names(dt_test) = c("obs_usage","proba_presence","pred_presence","axe1","axe2")
-# Grid 100 * 100
-dt_test2 = dt_test %>% mutate(
-  cut_x = cut(axe1, breaks = seq(from = limits[1], to = limits[2], length.out = 100), include.lowest = T),
-  cut_y = cut(axe2, breaks = seq(from = limits[3], to = limits[4], length.out = 100), include.lowest = T)
-) %>%
-  group_by(cut_x, cut_y) %>% 
-  mutate(n_bin = n(), 
-         mean_proba = mean(proba_presence),
-         sd_proba = sd(proba_presence) )
+grid_ni <- GridObs(usage ="Ni",  mois = "juin")
+grid_pa <- GridObs(usage ="Pa",  mois = "juin")
+
+# TODO : tester
+D <- 1-(0.5*(sum(abs(grid_ni$z_ij - grid_pa$z_ij))))	
 
 
-dt_grid_test = dt_test %>% mutate(
-  cut_x = cut(axe1, breaks = seq(from = limits[1], to = limits[2], length.out = 100), include.lowest = T),
-  cut_y = cut(axe2, breaks = seq(from = limits[3], to = limits[4], length.out = 100), include.lowest = T)
-) %>%
-  group_by(cut_x, cut_y) %>% 
-  summarise(n_bin = n(), 
-         mean_proba = mean(proba_presence),
-         sd_proba = sd(proba_presence),
-         sum_obs = sum(obs_usage))
-
-# densité condition env pour les présences observées + contour niche 
-grid_usage2 = grid_usage_rdata %>% filter(proba_presence >= seuil)
-grid_usage2 = grid_usage_rdata
-
-dt_test2$obs_usage[dt_test2$obs_usage == 0.5] <- 1
-
-P = dt_test2 %>% 
-  # filter(obs_usage == "1") %>%
-  ggplot(aes(axe1, axe2, color=n_bin, alpha=n_bin)) +
-  geom_point()+
-  scale_color_distiller(palette ="Spectral")+
-  xlim(limits[1], limits[2])+
-  ylim(limits[3], limits[4])+
-  stat_contour_filled(data=grid_usage2,
-                      aes(x=axe1, y=axe2, z=proba_presence),
-                      color="black",
-                      size=0.55, bins=2,
-                      show.legend =T,
-                      alpha=0.1)+
-  #scale_fill_manual(values=c("transparent")) +
-  theme_minimal() +
-  guides(alpha = FALSE)+
-  theme(text = element_text(size=15)) +
-  facet_grid(~ as.factor(obs_usage))
-
-  #  +
-  # labs(y="Environmental axe 2",x="Environmental axe 1",
-  #      title =paste0(usage, " - ",mois),
-  #      subtitle = paste0("density of realized environmental space, for observed presences, with niche contour"),
-  #      color="Density")+
-  # theme(
-  #   legend.position = c(.95, .95),
-  #   legend.justification = c("right", "top"),
-  #   legend.box.just = "right",
-  #   legend.margin = margin(6, 6, 6, 6)
-  # )
-
-P2 = dt_grid_test %>% 
-  # filter(obs_usage == "1") %>%
-  ggplot(aes(cut_x, cut_y, fill=n_bin)) +
-  geom_raster() +
-  scale_fill_distiller(palette ="Spectral")
-
-
-# scale des densités
-MAX_N = max(dt_grid_test$n_bin)
-MAX_nobs = max(dt_grid_test$sum_obs)
-
-dt_grid_test$e_ij <- dt_grid_test$n_bin / MAX_N
-dt_grid_test$o_ij <- dt_grid_test$sum_obs / MAX_nobs
-max_oe = max(dt_grid_test$o_ij/dt_grid_test$e_ij)
-dt_grid_test$z_ij <- (dt_grid_test$o_ij / dt_grid_test$e_ij) / max_oe
-
-# z = 0 lorsque obs < 3
-stock = dt_grid_test
-
-dt_grid_test$z_ij[dt_grid_test$sum_obs < 3 & dt_grid_test$z_ij == 1] <- 0
-
-# available environment
-Pe = dt_grid_test %>% 
-  ggplot(aes(cut_x, cut_y, fill=e_ij, alpha = e_ij)) +
-  geom_raster() +
-  scale_fill_distiller(palette ="Spectral")
-# density observation
-Po = dt_grid_test %>% 
-  ggplot(aes(cut_x, cut_y, fill=o_ij, alpha=o_ij)) +
-  geom_raster() +
-  scale_fill_distiller(palette ="Spectral")
-# densité obs en fonction disponibilité env
-Poe = dt_grid_test %>% 
-  ggplot(aes(cut_x, cut_y, fill=z_ij, alpha=z_ij)) +
-  geom_raster() +
-  scale_fill_distiller(palette ="Spectral")
-
-# bugs : z = 1 ? pour des pixels où peu d'obs + env rare
-# quand pixel env le plus rare avec 1 seule observation de présence -> z = 1
-
-library(patchwork)
-Pe / Po  /Poe
-
+# FROM BROENNIMANN
+D <- 1-(0.5*(sum(abs(p1-p2))))				# overlap metric D
+I <- 1-(0.5*(sqrt(sum((sqrt(p1)-sqrt(p2))^2))))	# overlap metric I
 
 #####  Schoener D sur probabilités issues SDM, projetées dans esp env ##### 
 
