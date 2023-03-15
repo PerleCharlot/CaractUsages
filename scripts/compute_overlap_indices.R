@@ -2,7 +2,7 @@
 # Nom : Calcul indices overlap
 # Auteure : Perle Charlot
 # Date de création : 10-03-2023
-# Dates de modification : 13-03-2023
+# Dates de modification : 15-03-2023
 
 ### Librairies -------------------------------------
 library(data.table)
@@ -11,41 +11,21 @@ library(ggplot2)
 library(patchwork)
 ### Fonctions -------------------------------------
 
-### Constantes -------------------------------------
+# Compute overlap D schoener between 2 uses
+DSchoener <- function(i, j){1-(0.5*(sum(abs(i - j), na.rm=T)))}
 
-# Espace de travail
-wd <- getwd()
-# Dossier des outputs (dans le git)
-output_path <- paste0(wd,"/output/")
-input_path <- paste0(wd,"/input/")
-
-#### Données spatiales ####
-
-#### Autre ####
-liste.mois = c("mai","juin","juillet","aout","septembre")
-df.mois = data.frame(nom_mois = liste.mois, numero_mois = c("05","06","07","08","09"))
-# # Liste dimensions
-# liste.dim =  c("CA","B","PV","CS","D","I")
-# Liste usages
-liste.usages = c("Ni","Lk","Co","Pa","Rp","Vt")
-
-### Programme -------------------------------------
-
-#### E-space ####
-
-##### Schoener D abond obs #####
-# corrigées par disponibilité (Broennimann 2012), env grid
-
+# Fonction qui retourne un dataframe avec o_ij e_ij et z_ij pour un usage, pour un mois
 GridObs <- function(usage,  mois,
-                    type_donnees = "ACP_avecponderation", algorithme = "glm", fit = "2_axes"){
+                    type_donnees = "ACP_avec_ponderation", 
+                    algorithme = "glm", fit = "2_axes"){
   
-  #TEST
-  usage = liste.usages[1]
-  mois = liste.mois[2]
-  type_donnees = "ACP_avec_ponderation" # "ACP_ACP" ou "ACP_avec_ponderation" ou
-  # "ACP_sans_ponderation" ou "brute"
-  fit = "2_axes" # "2_axes" ou all_simple"
-  algorithme = "glm"
+  # #TEST
+  # usage = liste.usages[1]
+  # mois = liste.mois[2]
+  # type_donnees = "ACP_avec_ponderation" # "ACP_ACP" ou "ACP_avec_ponderation" ou
+  # # "ACP_sans_ponderation" ou "brute"
+  # fit = "2_axes" # "2_axes" ou all_simple"
+  # algorithme = "glm"
   
   # Conserver les chemins
   chemin_esp_eco = paste0(output_path,"/niches/",type_donnees,"/",usage,"/",
@@ -127,12 +107,12 @@ GridObs <- function(usage,  mois,
     geom_point(size=2) +
     scale_colour_distiller(palette ="Spectral",na.value = "transparent") +
     theme(#axis.ticks.x = element_blank(),
-          legend.position = "none") +
+      legend.position = "none") +
     labs(x="Axe 1",y="Axe 2",  title = "Environment Availibity")+
-  theme(axis.text.x= element_text(angle = 45, hjust = 1))+
+    theme(axis.text.x= element_text(angle = 45, hjust = 1))+
     scale_x_discrete(labels = xlabels)+
     scale_y_discrete(labels = xlabels)
-
+  
   P2 =  dt_uses_env_grid2 %>% 
     ggplot(aes(cut_x, cut_y, colour = ifelse(o_ij > 0 , o_ij, NA))) +
     geom_point( size=2) +
@@ -163,11 +143,11 @@ GridObs <- function(usage,  mois,
     scale_x_discrete(labels = xlabels)+
     scale_y_discrete(labels = xlabels)
   
-  P2 + P1 + P3+ plot_layout(nrow = 2, ncol=2) 
+  P_all = P2 + P1 + P3+ plot_layout(nrow = 2, ncol=2) 
   
-  # TODO : save plot
-  
-  return(dt_uses_env_grid2) #pour ensuite calculer D Schoener sur z
+  png(file = paste0(chemin_esp_eco,"/occupancy_obs_",mois,".png"),width=1400, height=800)
+  plot(P_all)
+  dev.off()
   
   # densité condition env pour les présences observées + contour niche 
   dt_uses_env_grid = dt_uses_env %>% mutate(
@@ -184,7 +164,6 @@ GridObs <- function(usage,  mois,
   # New facet label names
   supp.labs <- c("Absence", "Presence")
   names(supp.labs) <- c(0, 1)
-  
   P =  dt_uses_env_grid %>% 
     ggplot(aes(axe1, axe2, color=n_bin, alpha=n_bin)) +
     geom_point()+
@@ -202,24 +181,95 @@ GridObs <- function(usage,  mois,
     guides(alpha = FALSE)+
     theme(text = element_text(size=15)) +
     facet_grid(~ obs_usage,labeller = labeller(obs_usage = supp.labs))
-
-  # TODO : save plot
   
-  # TODO: test function for 1 use & then for several uses
-  # TODO: compute Schoener D
+  #save plot
+  png(file = paste0(chemin_esp_eco,"/niche_contour_obs_",mois,".png"),width=1400, height=800)
+  plot(P)
+  dev.off()
   
+  # rescale occupancy
+  dt_uses_env_grid2$p <- dt_uses_env_grid2$z_ij/sum(dt_uses_env_grid2$z_ij, na.rm=T)
+  
+  return(dt_uses_env_grid2)
 }
 
-grid_ni <- GridObs(usage ="Ni",  mois = "juin")
-grid_pa <- GridObs(usage ="Pa",  mois = "juin")
+# Schoener D sur occupancy à partir données observations
+applyD_Schoener <- function(liste.usages, mois){
+  
+  # # TEST
+  # liste.usages = c("Ni","Pa","Rp","Co","Vt")
+  # mois = "juillet"
+  
+  # compute occupancy fpr each use
+  list_dt <- lapply(liste.usages, 
+                    function(x) GridObs(usage = x, mois = mois))
+  # sélectionner colonne p de chaque dt et index la (same as usage order)
+  df = data.frame()
+  for(i in 1:length(list_dt)){
+    df.u = data.frame("p" = list_dt[[i]]$p)
+    names(df.u) = paste0("p_",liste.usages[i])
+    df = as.data.frame(append(df, df.u))
+  }
+  # Schoener D pairwise computation matrix
+  pairwise_D <- matrix(nrow = length(liste.usages), ncol = length(liste.usages), 
+                       dimnames = list(liste.usages,liste.usages) )
+  for(i in 1:length(liste.usages)){
+    for(j in 1:length(liste.usages)){
+      pairwise_D[j,i]  <- DSchoener(df[,i], df[,j])
+    }
+  }
+  return(pairwise_D)
+}
 
-# TODO : tester
-D <- 1-(0.5*(sum(abs(grid_ni$z_ij - grid_pa$z_ij))))	
+### Constantes -------------------------------------
 
+# Espace de travail
+wd <- getwd()
+# Dossier des outputs (dans le git)
+output_path <- paste0(wd,"/output/")
+input_path <- paste0(wd,"/input/")
 
-# FROM BROENNIMANN
-D <- 1-(0.5*(sum(abs(p1-p2))))				# overlap metric D
-I <- 1-(0.5*(sqrt(sum((sqrt(p1)-sqrt(p2))^2))))	# overlap metric I
+#### Données spatiales ####
+
+#### Autre ####
+liste.mois = c("mai","juin","juillet","aout","septembre")
+df.mois = data.frame(nom_mois = liste.mois, numero_mois = c("05","06","07","08","09"))
+# # Liste dimensions
+# liste.dim =  c("CA","B","PV","CS","D","I")
+# Liste usages
+liste.usages = c("Ni","Lk","Co","Pa","Rp","Vt")
+
+### Programme -------------------------------------
+
+#### E-space ####
+
+##### Schoener D abond obs #####
+# corrigées par disponibilité (Broennimann 2012), env grid
+
+A = lapply(liste.mois[-1], function(x) 
+  applyD_Schoener(liste.usages = c("Ni","Pa","Rp","Co","Vt"), mois = x) )
+# Lk que en mai
+B = applyD_Schoener(liste.usages = c("Lk","Rp","Vt"), mois = "mai")
+schoenerD_list = append(list(B),A)
+names(schoenerD_list) <- c("mai", liste.mois[-1])
+# save matrices
+type_donnees = "ACP_avec_ponderation"
+algorithme = "glm"
+fit = "2_axes"
+schoener_D_obs_path = paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
+                            fit,"/",algorithme,"/Schoener_D_obs/") 
+if(!dir.exists(schoener_D_obs_path)){dir.create(schoener_D_obs_path)}
+# save in rdata
+save(schoenerD_list,
+     file = paste0(schoener_D_obs_path,"/matrices_schoener_d_obs.rdata"))
+# save in csv
+for(i in 1:length(schoenerD_list)){
+  write.csv(schoenerD_list[i], 
+            paste0(schoener_D_obs_path,"/matrice_schoener_d_obs_",names(schoenerD_list)[i],".csv"))
+}
+# TODO : mean + sd throught summer
+mean()
+sd()
 
 #####  Schoener D sur probabilités issues SDM, projetées dans esp env ##### 
 
