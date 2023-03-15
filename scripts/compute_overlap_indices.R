@@ -221,6 +221,27 @@ applyD_Schoener <- function(liste.usages, mois){
   return(pairwise_D)
 }
 
+# Calcule moyenne et écart types de plusieurs matrices
+meansd4listMatrices <- function(liste.matrices, liste.usages){
+  # # TEST
+  # liste.matrices = A
+  # liste.usages = liste.usages
+  
+  pairwise_mean_D <- matrix(nrow = length(liste.usages), ncol = length(liste.usages), 
+                            dimnames = list(liste.usages,liste.usages) )
+  pairwise_sd_D <- matrix(nrow = length(liste.usages), ncol = length(liste.usages), 
+                          dimnames = list(liste.usages,liste.usages) )
+  for(i in 1:length(liste.usages)){
+    for(j in 1:length(liste.usages)){
+      pairwise_mean_D[j,i]  <- mean(unlist(lapply(liste.matrices, function(x) x[j,i])))
+      pairwise_sd_D[j,i] <- sd(unlist(lapply(liste.matrices, function(x) x[j,i])))
+    }
+  }
+  pairwise_smr <- list(pairwise_mean_D, pairwise_sd_D)
+  names(pairwise_smr) <- c("mean","sd")
+  return(pairwise_smr)
+}
+
 ### Constantes -------------------------------------
 
 # Espace de travail
@@ -248,6 +269,9 @@ liste.usages = c("Ni","Lk","Co","Pa","Rp","Vt")
 
 A = lapply(liste.mois[-1], function(x) 
   applyD_Schoener(liste.usages = c("Ni","Pa","Rp","Co","Vt"), mois = x) )
+# Rp et VT présents tous l'été
+Abis = lapply(liste.mois, function(x) 
+  applyD_Schoener(liste.usages = c("Rp","Vt"), mois = x) )
 # Lk que en mai
 B = applyD_Schoener(liste.usages = c("Lk","Rp","Vt"), mois = "mai")
 schoenerD_list = append(list(B),A)
@@ -267,9 +291,24 @@ for(i in 1:length(schoenerD_list)){
   write.csv(schoenerD_list[i], 
             paste0(schoener_D_obs_path,"/matrice_schoener_d_obs_",names(schoenerD_list)[i],".csv"))
 }
-# TODO : mean + sd throught summer
-mean()
-sd()
+# mean + sd throught summer
+M1 = meansd4listMatrices(A, c("Ni","Pa","Rp","Co","Vt"))
+M2 = meansd4listMatrices(Abis, c("Rp","Vt"))
+
+M2[1,2]
+
+M3 = B 
+M3[,2:3] <- NA
+M3
+
+# TODO : combine means & sd in the same matrix
+# de la forme mean (+- sd) dans chaque cellule
+
+
+
+
+
+
 
 #####  Schoener D sur probabilités issues SDM, projetées dans esp env ##### 
 
