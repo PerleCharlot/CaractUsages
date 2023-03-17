@@ -11,6 +11,8 @@ library(ggplot2)
 library(patchwork)
 library(raster)
 library(sf)
+library(stringr)
+library(tidyverse)
 ### Fonctions -------------------------------------
 
 # Compute overlap D schoener between 2 uses
@@ -257,9 +259,6 @@ applyD_Schoener_proba_pred <- function(liste_usages,
     stack_proba <- stack_us %>% subset(grep("proba", names(stack_us)))
     # transform to df
     df_proba_us <- data.frame(data.table(stack_proba[]))
-    
-    
-
   }
   if(space == "E"){
     
@@ -583,3 +582,139 @@ schoenerD.stats("G_proba", path_save)
 
 path_save <- paste0(schoener_D_Gspace_path,"/surface_pred/")
 if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
+
+#% superficie intersection en fonction cutoff
+pInter_fCutOff <- function(mois, space){
+  
+  # # TEST
+  # mois = "juin" # NULL "juin"
+  # space = "G" # "G"
+  
+  # sortir usage nom
+  noms_us_ord <- liste.usages[order(liste.usages)]
+  
+  if(space == "G"){
+    # load raster of proba for month studied
+    list_rast <- list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
+                                  pattern = ".tif$", 
+                                  recursive = T, full.names = T)
+    # trier le mois
+    list_rast <- list_rast[grep(mois,list_rast)]
+    # obtenir noms usages
+    A <- list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
+               pattern = ".tif$", 
+               recursive = T)
+    A  <- A [grep(mois,A)]
+    noms_us_ord <- str_sub(A,start = 1,end = 2)
+
+    # Load rasters
+    stack_us <- stack(list_rast[grep(mois,list_rast)])
+    # rename with use names
+    names(stack_us) <- unlist(lapply(noms_us_ord, function(x) paste0(x,c("_obs","_proba","_pred"))))
+    # conserve proba layer = 2nd
+    stack_proba <- stack_us %>% subset(grep("proba", names(stack_us)))
+    # transform to df
+    df_proba_us <- data.frame(data.table(stack_proba[]))
+    
+    # creer un df par cutoff puis liste de df
+    convertCutoff <- function(cutoff, index_col){
+      b <- data.frame(b = ifelse(df_proba_us[,index_col] > cutoff, 1 ,0))
+      names(b) <- paste0(names(df_proba_us[index_col]),"_",cutoff)
+      return(b)
+    }
+    liste_preds <- lapply(seq(0.05,0.95,0.05), function(x) 
+      do.call(cbind,
+              lapply(1:dim(df_proba_us)[2], 
+                     function(i) convertCutoff(cutoff=x, index_col = i))))
+    
+    # une matrice de calcul (de % aire intersection / aire usage ) / cutoff
+    surf_1_pix <- res(stack_us)[1]*res(stack_us)[2] # en m²
+    
+    inter_cutoff <- function(df){
+      # # TEST
+      # df = liste_preds[[11]]
+      # cat(names(df))
+      
+      M <- matrix(nrow =  length(noms_us_ord),ncol = length(noms_us_ord),
+                  dimnames = list(noms_us_ord,noms_us_ord))
+      
+      for(i in 1:dim(df)[2]){
+        for(j in 1:dim(df)[2]){
+          
+          nb_pix_u <- sum(df[,i], na.rm=T) # nb pixels d'un usage
+          A_u <- nb_pix_u * surf_1_pix # en m²
+          #cat(paste0("\nA_u : ", A_u/1000000))
+          tb <- table(data.frame(inter = df[,i] + df[,j]))
+          A_inter <- tb["2"] * surf_1_pix # en m²
+          # si 0 pixels d'intersection => chevauchement nul
+          if(is.na(A_inter)){
+            A_inter <- 0
+            C_u <- 0}
+          # si usage jamais prédit => NA
+          if(A_u == 0){
+            C_u <- NA
+          }
+          if(A_inter != 0 & A_u != 0){
+            C_u <- A_inter/A_u
+          }
+          #cat(paste0("\n C_u : ",C_u))
+          name_i <- names(df)[i]
+          name_j <- names(df)[j]
+          #cat(paste0("\nC(",name_i,"-",name_j,") : ", C_u))
+          M[i,j] <- C_u
+        }
+      }
+      return(M)
+    }
+    
+    liste_M <- lapply(liste_preds,inter_cutoff)
+    names(liste_M) <- paste0("Ainter_",seq(0.05,0.95,0.05))
+    
+    out_mois <- paste0(path_save,"/",mois,"/") 
+    if(!dir.exists(out_mois)){dir.create(out_mois, recursive = T)}
+    
+    for(i in 1:length(liste_M)){
+      write.csv(liste_M[i], 
+                paste0(out_mois,"/mat_surf_",names(liste_M)[i],".csv"))
+    }
+    
+    # TODO : pas tous les usages présents au mois donné !!
+    # f2 doit prendre ça en considération
+    
+    # Graphs variation overla^p en fonction cutoff
+    f2 <- function(USE){
+      cat(paste0("\nUse : ", USE, " pour mois ",mois ))
+      f <- function(i,us){
+        M = liste_M[[i]]
+        return(M[us,])
+      }
+      # USE <- "Ni"
+      df <- as.data.frame(do.call(rbind,lapply(1:length(liste_M), function(x)f(i=x, us=USE))))
+      df$cutoff <- seq(0.05,0.95,0.05)
+      
+      df2 <- df %>% pivot_longer(liste.usages,
+                                 names_to = "use2",
+                                 values_to = "C")
+      P = df2 %>% ggplot(aes(x=cutoff, y=C, col=use2))+
+        geom_point()+geom_line()+
+        labs(title=USE,y="Overlap")+
+        theme(text = element_text(size=15))
+      
+      png(file = paste0(out_mois,"/overlap_surface_cutoff_",USE,"_",mois,".png"),width=1400, height=800)
+      plot(P)
+      dev.off()
+    }
+    lapply(liste.usages, f2)
+    
+    return(liste_M) # pour un mois donné, avec tous les cutoffs possibles
+  }
+  
+  if(space == "E"){
+    
+  }
+}
+
+# liste de 6 éléments (1/mois), overlap=f(cutoff)
+overlap_pred_G <- lapply(liste.mois,function(x) pInter_fCutOff(mois = x, space="G"))
+
+# TODO : mean + sd ?
