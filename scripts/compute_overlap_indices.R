@@ -2,7 +2,7 @@
 # Nom : Calcul indices overlap
 # Auteure : Perle Charlot
 # Date de création : 10-03-2023
-# Dates de modification : 16-03-2023
+# Dates de modification : 17-03-2023
 
 ### Librairies -------------------------------------
 library(data.table)
@@ -10,6 +10,7 @@ library(dplyr)
 library(ggplot2)
 library(patchwork)
 library(raster)
+library(sf)
 ### Fonctions -------------------------------------
 
 # Compute overlap D schoener between 2 uses
@@ -27,6 +28,8 @@ GridObs <- function(usage,  mois,
   # # "ACP_sans_ponderation" ou "brute"
   # fit = "2_axes" # "2_axes" ou all_simple"
   # algorithme = "glm"
+  
+  cat("\nUsage : ", usage)
   
   # Conserver les chemins
   chemin_esp_eco = paste0(output_path,"/niches/",type_donnees,"/",usage,"/",
@@ -201,6 +204,8 @@ applyD_Schoener_obs <- function(liste_usages, mois){
   # liste.usages = c("Ni","Pa","Rp","Co","Vt")
   # mois = "juillet"
   
+  cat("\nMois : ", mois)
+  
   # compute occupancy fpr each use
   list_dt <- lapply(liste_usages, 
                     function(x) GridObs(usage = x, mois = mois))
@@ -304,8 +309,8 @@ meansd4listMatrices <- function(liste.matrices, liste.usages){
                           dimnames = list(liste.usages,liste.usages) )
   for(i in 1:length(liste.usages)){
     for(j in 1:length(liste.usages)){
-      pairwise_mean_D[j,i]  <- mean(unlist(lapply(liste.matrices, function(x) x[j,i])))
-      pairwise_sd_D[j,i] <- sd(unlist(lapply(liste.matrices, function(x) x[j,i])))
+      pairwise_mean_D[j,i]  <- mean(unlist(lapply(liste.matrices, function(x) x[j,i])), na.rm=T)
+      pairwise_sd_D[j,i] <- sd(unlist(lapply(liste.matrices, function(x) x[j,i])), na.rm=T)
     }
   }
   pairwise_smr <- list(pairwise_mean_D, pairwise_sd_D)
@@ -313,29 +318,31 @@ meansd4listMatrices <- function(liste.matrices, liste.usages){
   return(pairwise_smr)
 }
 
-
 schoenerD.stats <- function(fonction_applyschoener, chemin_save){
   # # TEST
-  # fonction_applyschoener = "E_proba" # "E_obs" "E_proba"
+  # fonction_applyschoener = "G_proba" # "E_obs" "E_proba"
   # chemin_save = path_save
   
   if(fonction_applyschoener == "G_proba"){
-    A = lapply(liste.mois[-1], function(x) 
-      applyD_Schoener_proba_pred(liste_usages = c("Ni","Pa","Rp","Co","Vt"), mois = x, space="G") )
-    # Rp et VT présents tout l'été
-    Abis = lapply(liste.mois, function(x) 
-      applyD_Schoener_proba_pred(liste_usages = c("Rp","Vt"), mois = x) )
-    # Lk que en mai
-    B = applyD_Schoener_proba_pred(liste_usages = c("Lk","Rp","Vt"), mois = "mai")
+    # en mai : que 3 usages
+    D_mai <- applyD_Schoener_proba_pred(liste_usages = sort(c("Lk","Rp","Vt")), mois = c("mai"),space="G")
+    # en juin : tous les usages
+    D_juin <- applyD_Schoener_proba_pred(liste_usages = liste.usages, mois = c("juin"),space="G")
+    # de juillet à septembre : les 5 mêmes usages
+    D_jui_ao_sep <- lapply(c("juillet","aout","septembre"), function(x) 
+      applyD_Schoener_proba_pred(liste_usages = sort(c("Ni","Pa","Rp","Co","Vt")), mois = x,space="G"))
   }
   if(fonction_applyschoener == "E_obs"){
-    A = lapply(liste.mois[-1], function(x) 
-      applyD_Schoener_obs(liste_usages = c("Ni","Pa","Rp","Co","Vt"), mois = x) )
-    # Rp et VT présents tous l'été
-    Abis = lapply(liste.mois, function(x) 
-      applyD_Schoener_obs(liste_usages = c("Rp","Vt"), mois = x) )
-    # Lk que en mai
-    B = applyD_Schoener_obs(liste_usages = c("Lk","Rp","Vt"), mois = "mai")
+
+    # Appliquer fonction en fonction des usages en présence
+    # ! nécessite de le savoir en amont ...
+    # en mai : que 3 usages
+    D_mai <- applyD_Schoener_obs(liste_usages = sort(c("Lk","Rp","Vt")), mois = c("mai"))
+    # en juin : tous les usages
+    D_juin <- applyD_Schoener_obs(liste_usages = sort(liste.usages), mois = c("juin"))
+    # de juillet à septembre : les 5 mêmes usages
+    D_jui_ao_sep <- lapply(c("juillet","aout","septembre"), function(x) 
+      applyD_Schoener_obs(liste_usages = sort(c("Ni","Pa","Rp","Co","Vt")), mois = x) )
   }
   # pas de mean ni sd car niches construites sur aggrégation mois
   if(fonction_applyschoener == "E_proba"){
@@ -349,57 +356,155 @@ schoenerD.stats <- function(fonction_applyschoener, chemin_save){
   
   # quand D schoener mensuel, calcul mean + sd
   if(any(fonction_applyschoener == "E_obs" | fonction_applyschoener == "G_proba")){
-    # Combine all 3
-    schoenerD_list = append(list(B),append(A, Abis))
-    names(schoenerD_list) <- c("mai", paste0(liste.mois[-1],"_5uses"),paste0(liste.mois,"_2uses"))
+    
+    # Rassembler les matrices au cours de l'été
+    D_summer <- append(list(D_mai, D_juin), D_jui_ao_sep)
+    # Combler les vides quand absence usage pendant un mois
+    a = unlist(lapply(1:length(D_summer ), function(x) dim(D_summer[[x]])[1]))
+    higher_M <- D_summer[[which.max(a)]]
+    D_summer2 <- lapply(1:length(D_summer), 
+                        function(x) MatchMatrixDims(biggest_mat = higher_M, 
+                                                    mat_to_expand =  D_summer[[x]]))
+    # remove upper triangle
+    D_summer2 <- lapply(1:length(D_summer2), function(x) {
+      M <- D_summer2[[x]]
+      M[upper.tri(M)] <- NA
+      return(M)})
+    names(D_summer2) <- liste.mois
+    
     # save matrices
-    save(schoenerD_list,
+    save(D_summer2,
          file = paste0(chemin_save,"/matrices_schoener_d.rdata"))
     # save in csv
-    for(i in 1:length(schoenerD_list)){
-      write.csv(schoenerD_list[i], 
-                paste0(chemin_save,"/matrice_schoener_d_",names(schoenerD_list)[i],".csv"))
+    for(i in 1:length(D_summer2)){
+      write.csv(D_summer2[i], 
+                paste0(chemin_save,"/matrice_schoener_d_",names(D_summer2)[i],".csv"))
     }
-    # mean + sd throught summer
-    M1 = meansd4listMatrices(A, c("Ni","Pa","Rp","Co","Vt"))
-    names(M1) = paste0(names(M1),"_5uses")
-    M2 = meansd4listMatrices(Abis, c("Rp","Vt"))
-    names(M2) = paste0(names(M2),"_2uses")
-    M12 = append(M1, M2)
-    for(i in 1:length(M12)){
-      write.csv(M12[i], 
-                paste0(chemin_save,"/schoener_d_",names(M12)[i],".csv"))
-    }
-    M3 = B 
-    # Combiner à la main means & sd in the same matrix
-    M_mean = cbind(M1$mean,matrix(rep(NA,5), dimnames =list(c("Ni","Pa","Rp","Co","Vt"),"Lk")) )
-    N = matrix(c(NA,NA,M3[2,1],NA,M3[3,1],1), dimnames = list(c("Ni","Pa","Rp","Co","Vt","Lk"),"Lk"))
-    M_mean = rbind(M_mean, t(N))
-    # remplacer la valeur pour paire Rp/Vt
-    M_mean[5,3] <- M2$mean[2,1]
-    # NA dans triangle du haut
-    M_mean[upper.tri(M_mean)] <- NA
     
-    M_sd = cbind(M1$sd,matrix(rep(NA,5), dimnames =list(c("Ni","Pa","Rp","Co","Vt"),"Lk")) )
-    Nsd = matrix(rep(NA,6), dimnames = list(c("Ni","Pa","Rp","Co","Vt","Lk"),"Lk"))
-    M_sd = rbind(M_sd, t(Nsd))
-    # remplacer la valeur pour paire Rp/Vt
-    M_sd[5,3] <- M2$sd[2,1]
-    # NA dans triangle du haut
-    M_sd[upper.tri(M_sd)] <- NA
-    # de la forme mean (+- sd) dans chaque cellule
-    M = matrix(paste0(round(M_mean, 2), " (", 
-                      round(M_sd, 2), ")"),
+    # mean + sd throught summer
+    M_mean_sd <- meansd4listMatrices(D_summer2, sort(liste.usages))
+    for(i in 1:length(M_mean_sd)){
+      write.csv(M_mean_sd[i], 
+                paste0(chemin_save,"/schoener_d_",names(M_mean_sd)[i],".csv"))
+    }
+    
+    M = matrix(paste0(round(M_mean_sd$mean, 2), " (", 
+                      round(M_mean_sd$sd, 2), ")"),
                6,6,
-               dimnames = list(c("Ni","Pa","Rp","Co","Vt","Lk"),c("Ni","Pa","Rp","Co","Vt","Lk")))
+               dimnames = list(sort(liste.usages),sort(liste.usages)))
     M[upper.tri(M)] <- NA
     diag(M) <- 1
-    M[6,c(1,2,4)] <- NA
     df_mean_sd_D_obs = as.data.frame(M)
     df_mean_sd_D_obs
     write.csv(df_mean_sd_D_obs, 
               paste0(chemin_save,"/mat_schoener_d_mean_sd_summer.csv"))
   }
+}
+
+# Extand a matrix to match a biffer one
+MatchMatrixDims <- function(biggest_mat, mat_to_expand){
+  # # TEST
+  # biggest_mat = higher_M
+  # mat_to_expand = M_inter_obs[[1]]
+  
+  df_sup <- as.data.frame(biggest_mat)
+  df <- as.data.frame(mat_to_expand)
+  
+  # quand c'est la matrice la plus grande vs elle même
+  if(sum(dim(df_sup) == dim(df)) == 2){
+    return(as.matrix(df))
+  }else{
+    # extract absent row.s of df from df_sup
+    abs.rows <- df_sup[!rownames(df_sup) %in% rownames(df),]
+    # remove abs col.s
+    abs.rows <- abs.rows[,colnames(abs.rows) %in% colnames(df)]
+    abs.rows[] <- NA
+    df.2 <- rbind(df, abs.rows)
+    # extract absent col.s of df from df_sup
+    abs.cols <- as.data.frame(df_sup[,!colnames(df_sup) %in% colnames(df)])
+    names(abs.cols) <- names(df_sup)[!colnames(df_sup) %in% colnames(df)]
+    rownames(abs.cols) <- rownames(df_sup)
+    abs.cols[] <- NA
+    df <- cbind(df.2, abs.cols)
+    # reorder
+    df.sorted <- df[order(rownames(df)),]
+    df <- df[match(rownames(df.sorted ), rownames(df)),]
+    df <- df[,order(colnames(df))]
+    
+    return(as.matrix(df))
+  }
+}
+
+# Fonction qui calcule l'intersection entre obs usages et sort matrice
+inter_mois <- function(mois){
+  # # TEST
+  # mois = "juin"
+  
+  list_r_us = list.files(paste0(output_path,"/par_periode/",mois),
+                         recursive=TRUE, ".tif$", full.names=TRUE)
+  stack_us = stack(list_r_us)
+  
+  # masquer par contour zone d'étude car usages VTT et rando ont une emprise plus large
+  stack_us <- raster::mask(stack_us, limiteN2000)
+  
+  surf_1_pix <- res(stack_us)[1]*res(stack_us)[2] # en m²
+  
+  M <- matrix(nrow =  dim(stack_us)[3],ncol = dim(stack_us)[3],
+              dimnames = list(names(stack_us),names(stack_us)))
+  
+  for(i in 1:dim(stack_us)[3]){
+    for(j in 1:dim(stack_us)[3]){
+      nb_pix_u <- sum(values(stack_us[[i]]), na.rm=T) # nb pixels d'un usage
+      A_u <- nb_pix_u * surf_1_pix # en m²
+      pair <- stack_us[[i]]+stack_us[[j]]
+      A_inter <- length(pair[pair == 2]) * surf_1_pix # en m²
+      C_u <- A_inter/A_u 
+      name_i <- names(stack_us[[i]])
+      name_j <- names(stack_us[[j]])
+      cat(paste0("\nC(",name_i,"-",name_j,") : ", C_u))
+      M[i,j] <- C_u
+    }
+  }
+  return(M)
+}
+
+# Calcul mean et sd sur une liste de matrice mensuelle contenant ratio surface
+MeanSd_Surface_Month <- function(liste_de_matrices_mensuelle,
+                                 chemin_save){
+  # # TEST
+  # liste_de_matrices_mensuelle = M_inter_obs
+  # chemin_save = path_save
+  
+  a = unlist(lapply(1:length(liste_de_matrices_mensuelle ), 
+                    function(x) dim(liste_de_matrices_mensuelle[[x]])[1]))
+  higher_M <- liste_de_matrices_mensuelle[[which.max(a)]]
+  liste_de_matrices_mensuelle <- lapply(1:length(liste_de_matrices_mensuelle), 
+                                        function(x) MatchMatrixDims(biggest_mat = higher_M, 
+                                                                    mat_to_expand =  liste_de_matrices_mensuelle[[x]]))
+  names(liste_de_matrices_mensuelle) <- liste.mois
+  for(i in 1:length(liste_de_matrices_mensuelle)){
+    write.csv(liste_de_matrices_mensuelle[i], 
+              paste0(path_save,"/mat_surf_",names(liste_de_matrices_mensuelle)[i],".csv"))
+  }
+  # compute mean + sd
+  
+  M_mean_sd <-meansd4listMatrices(liste_de_matrices_mensuelle, 
+                                  sort(colnames(liste_de_matrices_mensuelle[[1]])))
+  for(i in 1:length(M_mean_sd)){
+    write.csv(M_mean_sd[i], 
+              paste0(chemin_save,"/ratio_surf_",names(M_mean_sd)[i],".csv"))
+  }
+  
+  M = matrix(paste0(round(M_mean_sd$mean, 2), " (", 
+                    round(M_mean_sd$sd, 2), ")"),
+             6,6,
+             dimnames = list(sort(colnames(liste_de_matrices_mensuelle[[1]])),
+                             sort(colnames(liste_de_matrices_mensuelle[[1]]))))
+  diag(M) <- 1
+  df_mean_sd_D_obs = as.data.frame(M)
+  df_mean_sd_D_obs
+  write.csv(df_mean_sd_D_obs, 
+            paste0(chemin_save,"/mat_ratio_surf_mean_sd_summer.csv"))
   
 }
 
@@ -412,6 +517,8 @@ output_path <- paste0(wd,"/output/")
 input_path <- paste0(wd,"/input/")
 
 #### Données spatiales ####
+dos_var_sp <- "C:/Users/perle.charlot/Documents/PhD/DATA/Variables_spatiales_Belledonne/"
+limiteN2000 <- paste0(dos_var_sp, "/limites_etude/cembraie_N2000_limites.gpkg")
 
 #### Autre ####
 liste.mois = c("mai","juin","juillet","aout","septembre")
@@ -436,6 +543,7 @@ if(!dir.exists(schoener_D_Espace_path)){dir.create(schoener_D_Espace_path, recur
 # corrigées par disponibilité (Broennimann 2012), env grid
 path_save <- paste0(schoener_D_Espace_path,"/obs/")
 if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
+
 schoenerD.stats("E_obs", path_save)
 
 #####  Schoener D sur probabilités issues SDM, projetées dans esp env ##### 
@@ -452,12 +560,17 @@ if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
 schoener_D_Gspace_path = paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
                                 fit,"/",algorithme,"/Schoener_D/G_space") 
 if(!dir.exists(schoener_D_Gspace_path)){dir.create(schoener_D_Gspace_path)}
+
 ##### % surface obs #####
 # ("témoin", ce qui est basiquement fait)
 path_save <- paste0(schoener_D_Gspace_path,"/surface_obs/")
 if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
 
 # monthly + stats
+limiteN2000 <- st_read(limiteN2000)
+
+M_inter_obs <- lapply(liste.mois,inter_mois)
+MeanSd_Surface_Month(M_inter_obs, path_save)
 
 ##### Schoener D proba occ ##### 
 # projetées dans esp géographique
