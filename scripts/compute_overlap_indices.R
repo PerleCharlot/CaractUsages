@@ -262,7 +262,7 @@ applyD_Schoener_proba_pred <- function(liste_usages,
   }
   if(space == "E"){
     
-    # load raster of proba for month studied
+    # load rdata proba for month studied
     list_rast <- base::list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
                                   pattern = "niche_potentielle", 
                                   recursive = T, full.names = T)
@@ -507,106 +507,27 @@ MeanSd_Surface_Month <- function(liste_de_matrices_mensuelle,
   
 }
 
-### Constantes -------------------------------------
-
-# Espace de travail
-wd <- getwd()
-# Dossier des outputs (dans le git)
-output_path <- paste0(wd,"/output/")
-input_path <- paste0(wd,"/input/")
-
-#### Données spatiales ####
-dos_var_sp <- "C:/Users/perle.charlot/Documents/PhD/DATA/Variables_spatiales_Belledonne/"
-limiteN2000 <- paste0(dos_var_sp, "/limites_etude/cembraie_N2000_limites.gpkg")
-
-#### Autre ####
-liste.mois = c("mai","juin","juillet","aout","septembre")
-df.mois = data.frame(nom_mois = liste.mois, numero_mois = c("05","06","07","08","09"))
-# # Liste dimensions
-# liste.dim =  c("CA","B","PV","CS","D","I")
-# Liste usages
-liste.usages = c("Ni","Lk","Co","Pa","Rp","Vt")
-
-type_donnees = "ACP_avec_ponderation"
-algorithme = "glm"
-fit = "2_axes"
-
-### Programme -------------------------------------
-
-#### E-space ####
-schoener_D_Espace_path = paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
-                                fit,"/",algorithme,"/Schoener_D/E_space") 
-if(!dir.exists(schoener_D_Espace_path)){dir.create(schoener_D_Espace_path, recursive = T)}
-
-##### Schoener D abond obs #####
-# corrigées par disponibilité (Broennimann 2012), env grid
-path_save <- paste0(schoener_D_Espace_path,"/obs/")
-if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
-
-schoenerD.stats("E_obs", path_save)
-
-#####  Schoener D sur probabilités issues SDM, projetées dans esp env ##### 
-path_save <- paste0(schoener_D_Espace_path,"/proba/")
-if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
-schoenerD.stats("E_proba", path_save)
-
-#####  % surface niche binarisé (en fonction cutoff) ##### 
-
-path_save <- paste0(schoener_D_Espace_path,"/surface_niche/")
-if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
-
-#### G-space ####
-schoener_D_Gspace_path = paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
-                                fit,"/",algorithme,"/Schoener_D/G_space") 
-if(!dir.exists(schoener_D_Gspace_path)){dir.create(schoener_D_Gspace_path)}
-
-##### % surface obs #####
-# ("témoin", ce qui est basiquement fait)
-path_save <- paste0(schoener_D_Gspace_path,"/surface_obs/")
-if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
-
-# monthly + stats
-limiteN2000 <- st_read(limiteN2000)
-
-M_inter_obs <- lapply(liste.mois,inter_mois)
-MeanSd_Surface_Month(M_inter_obs, path_save)
-
-##### Schoener D proba occ ##### 
-# projetées dans esp géographique
-path_save <- paste0(schoener_D_Gspace_path,"/proba/")
-if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
-schoenerD.stats("G_proba", path_save)
-
-#####  % surface pred occ ##### 
-# (en fonction cutoff)
-
-path_save <- paste0(schoener_D_Gspace_path,"/surface_pred/")
-if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
-
 #% superficie intersection en fonction cutoff
 pInter_fCutOff <- function(mois, space){
   
-  # # TEST
-  # mois = "juin" # NULL "juin"
-  # space = "G" # "G"
-  
-  # sortir usage nom
-  noms_us_ord <- liste.usages[order(liste.usages)]
+  # TEST
+  mois = NULL # NULL "juin"
+  space = "E" # "G" 'E'
   
   if(space == "G"){
     # load raster of proba for month studied
     list_rast <- list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
-                                  pattern = ".tif$", 
-                                  recursive = T, full.names = T)
+                            pattern = ".tif$", 
+                            recursive = T, full.names = T)
     # trier le mois
     list_rast <- list_rast[grep(mois,list_rast)]
     # obtenir noms usages
     A <- list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
-               pattern = ".tif$", 
-               recursive = T)
+                    pattern = ".tif$", 
+                    recursive = T)
     A  <- A [grep(mois,A)]
     noms_us_ord <- str_sub(A,start = 1,end = 2)
-
+    
     # Load rasters
     stack_us <- stack(list_rast[grep(mois,list_rast)])
     # rename with use names
@@ -678,11 +599,11 @@ pInter_fCutOff <- function(mois, space){
                 paste0(out_mois,"/mat_surf_",names(liste_M)[i],".csv"))
     }
     
-    # TODO : pas tous les usages présents au mois donné !!
-    # f2 doit prendre ça en considération
-    
     # Graphs variation overla^p en fonction cutoff
     f2 <- function(USE){
+      # # TEST
+      # USE = noms_us_ord[1]
+      
       cat(paste0("\nUse : ", USE, " pour mois ",mois ))
       f <- function(i,us){
         M = liste_M[[i]]
@@ -692,7 +613,7 @@ pInter_fCutOff <- function(mois, space){
       df <- as.data.frame(do.call(rbind,lapply(1:length(liste_M), function(x)f(i=x, us=USE))))
       df$cutoff <- seq(0.05,0.95,0.05)
       
-      df2 <- df %>% pivot_longer(liste.usages,
+      df2 <- df %>% pivot_longer(all_of(noms_us_ord),
                                  names_to = "use2",
                                  values_to = "C")
       P = df2 %>% ggplot(aes(x=cutoff, y=C, col=use2))+
@@ -704,17 +625,223 @@ pInter_fCutOff <- function(mois, space){
       plot(P)
       dev.off()
     }
-    lapply(liste.usages, f2)
+    lapply(noms_us_ord, f2)
     
     return(liste_M) # pour un mois donné, avec tous les cutoffs possibles
   }
   
   if(space == "E"){
     
+    # load rdata proba for month studied
+    list_rdata <- base::list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
+                                  pattern = "niche_potentielle", 
+                                  recursive = T, full.names = T)
+    list_rdata <- list_rdata[grep(".rdata",list_rdata)]
+    
+    # obtenir noms usages
+    A <- base::list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
+                                   pattern = "niche_potentielle", 
+                                   recursive = T,full.names = F)
+    A <- A[grep(".rdata",A)]
+    noms_us_ord <- str_sub(A,start = 1,end = 2)
+    
+    # fonction load niche data for a use
+    loadProbaNiche <- function(i){
+      load(list_rdata[i])
+      names(grid_usage_rdata)[3] <- paste0(names(grid_usage_rdata)[3],"_",noms_us_ord[i])
+      return(grid_usage_rdata)
+    }
+    df_proba_us <- lapply(1:length(noms_us_ord), loadProbaNiche)
+    # Merge
+    df_proba_us <- Reduce(function(x, y) merge(x, y, all=FALSE), df_proba_us)
+    df_proba_us <- df_proba_us %>% subset(select=-grep("axe", names(df_proba_us)))
+    
+    
+    # creer un df par cutoff puis liste de df
+    convertCutoff <- function(cutoff, index_col){
+      b <- data.frame(b = ifelse(df_proba_us[,index_col] > cutoff, 1 ,0))
+      names(b) <- paste0(names(df_proba_us[index_col]),"_",cutoff)
+      return(b)
+    }
+    liste_preds <- lapply(seq(0.05,0.95,0.05), function(x) 
+      do.call(cbind,
+              lapply(1:dim(df_proba_us)[2], 
+                     function(i) convertCutoff(cutoff=x, index_col = i))))
+    
+    
+    # une matrice de calcul (de % aire intersection / aire usage ) / cutoff
+    surf_1_pix <- 1 # en m²
+    
+    inter_cutoff <- function(df){
+      # # TEST
+      # df = liste_preds[[11]]
+      # cat(names(df))
+      
+      M <- matrix(nrow =  length(noms_us_ord),ncol = length(noms_us_ord),
+                  dimnames = list(noms_us_ord,noms_us_ord))
+      
+      for(i in 1:dim(df)[2]){
+        for(j in 1:dim(df)[2]){
+          
+          nb_pix_u <- sum(df[,i], na.rm=T) # nb pixels d'un usage
+          A_u <- nb_pix_u * surf_1_pix # en m²
+          #cat(paste0("\nA_u : ", A_u/1000000))
+          tb <- table(data.frame(inter = df[,i] + df[,j]))
+          A_inter <- tb["2"] * surf_1_pix # en m²
+          # si 0 pixels d'intersection => chevauchement nul
+          if(is.na(A_inter)){
+            A_inter <- 0
+            C_u <- 0}
+          # si usage jamais prédit => NA
+          if(A_u == 0){
+            C_u <- NA
+          }
+          if(A_inter != 0 & A_u != 0){
+            C_u <- A_inter/A_u
+          }
+          #cat(paste0("\n C_u : ",C_u))
+          name_i <- names(df)[i]
+          name_j <- names(df)[j]
+          #cat(paste0("\nC(",name_i,"-",name_j,") : ", C_u))
+          M[i,j] <- C_u
+        }
+      }
+      return(M)
+    }
+    
+    liste_M <- lapply(liste_preds,inter_cutoff)
+    names(liste_M) <- paste0("Ainter_",seq(0.05,0.95,0.05))
+    
+    # TODO : reprendre à partir de là
+    
+    
+    out_mois <- paste0(path_save,"/",mois,"/") 
+    if(!dir.exists(out_mois)){dir.create(out_mois, recursive = T)}
+    
+    for(i in 1:length(liste_M)){
+      write.csv(liste_M[i], 
+                paste0(out_mois,"/mat_surf_",names(liste_M)[i],".csv"))
+    }
+    
+    # Graphs variation overla^p en fonction cutoff
+    f2 <- function(USE){
+      # # TEST
+      # USE = noms_us_ord[1]
+      
+      cat(paste0("\nUse : ", USE, " pour mois ",mois ))
+      f <- function(i,us){
+        M = liste_M[[i]]
+        return(M[us,])
+      }
+      # USE <- "Ni"
+      df <- as.data.frame(do.call(rbind,lapply(1:length(liste_M), function(x)f(i=x, us=USE))))
+      df$cutoff <- seq(0.05,0.95,0.05)
+      
+      df2 <- df %>% pivot_longer(all_of(noms_us_ord),
+                                 names_to = "use2",
+                                 values_to = "C")
+      P = df2 %>% ggplot(aes(x=cutoff, y=C, col=use2))+
+        geom_point()+geom_line()+
+        labs(title=USE,y="Overlap")+
+        theme(text = element_text(size=15))
+      
+      png(file = paste0(out_mois,"/overlap_surface_cutoff_",USE,"_",mois,".png"),width=1400, height=800)
+      plot(P)
+      dev.off()
+    }
+    lapply(noms_us_ord, f2)
+    
+    return(liste_M) # pour un mois donné, avec tous les cutoffs possibles
+    
   }
 }
 
-# liste de 6 éléments (1/mois), overlap=f(cutoff)
-overlap_pred_G <- lapply(liste.mois,function(x) pInter_fCutOff(mois = x, space="G"))
+### Constantes -------------------------------------
 
-# TODO : mean + sd ?
+# Espace de travail
+wd <- getwd()
+# Dossier des outputs (dans le git)
+output_path <- paste0(wd,"/output/")
+input_path <- paste0(wd,"/input/")
+
+#### Données spatiales ####
+dos_var_sp <- "C:/Users/perle.charlot/Documents/PhD/DATA/Variables_spatiales_Belledonne/"
+limiteN2000 <- paste0(dos_var_sp, "/limites_etude/cembraie_N2000_limites.gpkg")
+
+#### Autre ####
+liste.mois = c("mai","juin","juillet","aout","septembre")
+df.mois = data.frame(nom_mois = liste.mois, numero_mois = c("05","06","07","08","09"))
+# # Liste dimensions
+# liste.dim =  c("CA","B","PV","CS","D","I")
+# Liste usages
+liste.usages = c("Ni","Lk","Co","Pa","Rp","Vt")
+
+type_donnees = "ACP_avec_ponderation"
+algorithme = "glm"
+fit = "2_axes"
+
+### Programme -------------------------------------
+
+# TODO
+# reprendre f pInter_fCutOff pour space == E (% surf niche binarisé)
+# calculer mean + sd sur % surface pred + niche binarisé
+
+#### E-space ####
+schoener_D_Espace_path = paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
+                                fit,"/",algorithme,"/Schoener_D/E_space") 
+if(!dir.exists(schoener_D_Espace_path)){dir.create(schoener_D_Espace_path, recursive = T)}
+
+##### Schoener D abond obs #####
+# corrigées par disponibilité (Broennimann 2012), env grid
+path_save <- paste0(schoener_D_Espace_path,"/obs/")
+if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
+
+schoenerD.stats("E_obs", path_save)
+
+#####  Schoener D sur probabilités issues SDM, projetées dans esp env ##### 
+path_save <- paste0(schoener_D_Espace_path,"/proba/")
+if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
+schoenerD.stats("E_proba", path_save)
+
+#####  % surface niche binarisé (en fonction cutoff) ##### 
+
+path_save <- paste0(schoener_D_Espace_path,"/surface_niche/")
+if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
+
+#### G-space ####
+schoener_D_Gspace_path = paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
+                                fit,"/",algorithme,"/Schoener_D/G_space") 
+if(!dir.exists(schoener_D_Gspace_path)){dir.create(schoener_D_Gspace_path)}
+
+##### % surface obs #####
+# ("témoin", ce qui est basiquement fait)
+path_save <- paste0(schoener_D_Gspace_path,"/surface_obs/")
+if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
+
+# monthly + stats
+limiteN2000 <- st_read(limiteN2000)
+
+M_inter_obs <- lapply(liste.mois,inter_mois)
+MeanSd_Surface_Month(M_inter_obs, path_save)
+
+##### Schoener D proba occ ##### 
+# projetées dans esp géographique
+path_save <- paste0(schoener_D_Gspace_path,"/proba/")
+if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
+schoenerD.stats("G_proba", path_save)
+
+#####  % surface pred occ ##### 
+# (en fonction cutoff)
+
+path_save <- paste0(schoener_D_Gspace_path,"/surface_pred/")
+if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
+
+# liste de 5 éléments (1/mois), overlap=f(cutoff)
+overlap_pred_G <- lapply(liste.mois,function(x) pInter_fCutOff(mois = x, space="G"))
+names(overlap_pred_G) <- liste.mois
+
+# TODO : mean + sd sur summer ?
+# TODO : rendre toutes les matrices de la même taille
+MatchMatrixDims()
+
+
