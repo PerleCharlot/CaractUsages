@@ -2,7 +2,7 @@
 # Nom : Calcul indices overlap
 # Auteure : Perle Charlot
 # Date de création : 10-03-2023
-# Dates de modification : 17-03-2023
+# Dates de modification : 20-03-2023
 
 ### Librairies -------------------------------------
 library(data.table)
@@ -13,6 +13,7 @@ library(raster)
 library(sf)
 library(stringr)
 library(tidyverse)
+library(RColorBrewer)
 ### Fonctions -------------------------------------
 
 # Compute overlap D schoener between 2 uses
@@ -235,9 +236,9 @@ applyD_Schoener_proba_pred <- function(liste_usages,
                                        space){
 
   # # TEST
-  # liste_usages = liste.usages
-  # mois = NULL # NULL "juin"
-  # space = "E" # "G"
+  # liste_usages = sort(c("Lk","Rp","Vt")) #sort(liste.usages)
+  # mois = "mai" # NULL "juin"
+  # space = "GE" # "G"
   
   # sortir usage nom
   noms_us_ord <- liste_usages[order(liste_usages)]
@@ -259,6 +260,89 @@ applyD_Schoener_proba_pred <- function(liste_usages,
     stack_proba <- stack_us %>% subset(grep("proba", names(stack_us)))
     # transform to df
     df_proba_us <- data.frame(data.table(stack_proba[]))
+  }
+  if(space == "GE"){
+    # load raster of proba for month studied
+    list_rast <- base::list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
+                                  pattern = ".tif$", 
+                                  recursive = T, full.names = T)
+    # trier le mois
+    list_rast <- list_rast[grep(mois,list_rast)]
+    #trier les usages
+    list_rast <- list_rast[grep(paste(liste_usages, collapse="|"), list_rast)]
+    # Load rasters
+    stack_us = stack(list_rast[grep(mois,list_rast)])
+    # rename with use names
+    names(stack_us) <- unlist(lapply(noms_us_ord, function(x) paste0(x,c("_obs","_proba","_pred"))))
+    # conserve proba layer = 2nd
+    stack_proba <- stack_us %>% subset(grep("proba", names(stack_us)))
+
+    # transform to df
+    df_proba_us <- data.frame(data.table(stack_proba[]))
+    df_proba_us1 <- cbind(coordinates(stack_proba),df_proba_us)
+    
+    # get x/y/axe1/axe2
+    df_valenv <- as.data.frame(fread(list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
+                                  pattern = ".csv$", 
+                                  recursive = F, full.names = T)[1], drop="V1"))
+    ind <- c(grep("axe1",names(df_valenv)),
+             grep("axe2",names(df_valenv)),
+             grep("^x$",names(df_valenv)),
+             grep("^y$",names(df_valenv)))
+    df_valenv_sub <- df_valenv[,ind]
+    names(df_valenv_sub)[1:2] <- c("axe1","axe2")
+    
+    # Merge
+    df_proba_us_EG <- merge(df_valenv_sub, df_proba_us1)
+    # pivot
+    df_proba_us_plot <- df_proba_us_EG %>% pivot_longer(cols=ends_with("proba"),
+                                    names_to = "Use", 
+                                    values_to = "Proba")
+    
+    supp.labs <- c("Nesting","Sheep Grazing","Hiking",
+                   "Lek","Sheep Night Camping" ,"Mountain Bike")
+    names(supp.labs) <- c("Ni_proba","Pa_proba","Rp_proba",
+                          "Lk_proba","Co_proba", "Vt_proba")
+    
+    df_proba_us_plot_new <- df_proba_us_plot                              # Replicate data
+    df_proba_us_plot_new$Use <- factor(df_proba_us_plot_new$Use,      # Reordering group factor levels
+                             levels = c("Ni_proba","Pa_proba","Rp_proba",
+                                        "Lk_proba","Co_proba", "Vt_proba"))
+    # Plot map (G space)
+    map <- ggplot(data = df_proba_us_plot_new) +
+      geom_raster(aes(x = x, y = y, fill = Proba)) +
+      scale_fill_distiller(palette ="RdBu",direction=1) +
+      #theme_void() +
+      theme(panel.background = element_rect(fill="white"),
+            panel.grid.major = element_line(colour="grey"),
+            legend.position = "right") +
+      labs(fill="Probability of\noccurrence")+
+      facet_wrap(.~Use,labeller = labeller(Use = supp.labs),drop=F)+
+      coord_equal()+
+      theme(text = element_text(size=15)) 
+    #save plot
+    png(file = paste0(path_save,"/map_proba_G_",mois,".png"),width=1400, height=800)
+    plot(map)
+    dev.off()
+    
+    # Plot proba de G (in E space)
+    P <- df_proba_us_plot_new %>%
+      ggplot(aes(x=axe1,y=axe2, color=Proba)) +
+      geom_point()+
+      xlim(-1,1)+
+      ylim(-1,1)+
+      labs(x="Environmental axis 1",y="Environmental axis 2",
+           color="Probability of\noccurrence")+
+      scale_color_distiller(palette ="RdBu",direction=1)+
+      facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)+
+      theme(panel.background = element_rect(fill="white"),
+            panel.grid.major = element_line(colour="grey")) +
+      guides(scale = "none")+
+      theme(text = element_text(size=15)) 
+  #save plot
+  png(file = paste0(path_save,"/proba_G_in_E_",mois,".png"),width=1400, height=800)
+  plot(P)
+  dev.off()
   }
   if(space == "E"){
     
@@ -318,9 +402,9 @@ meansd4listMatrices <- function(liste.matrices, liste.usages){
 }
 
 schoenerD.stats <- function(fonction_applyschoener, chemin_save){
-  # # TEST
-  # fonction_applyschoener = "G_proba" # "E_obs" "E_proba"
-  # chemin_save = path_save
+  # TEST
+  fonction_applyschoener = "E_proba_filter" # "E_obs" "E_proba"
+  chemin_save = path_save
   
   if(fonction_applyschoener == "G_proba"){
     # en mai : que 3 usages
@@ -352,9 +436,21 @@ schoenerD.stats <- function(fonction_applyschoener, chemin_save){
       write.csv(df_D, 
                 paste0(chemin_save,"/mat_schoener_d_summer.csv"))
   }
+
+  if(fonction_applyschoener == "E_proba_filter"){
+
+    D_mai <- applyD_Schoener_proba_pred(liste_usages = sort(c("Lk","Rp","Vt")), mois = c("mai"),
+                                        space="GE")
+    D_juin <- applyD_Schoener_proba_pred(liste_usages = sort(liste.usages), mois = c("juin"),
+                                         space="GE")
+    D_jui_ao_sep <- lapply(c("juillet","aout","septembre"), function(x) 
+      applyD_Schoener_proba_pred(liste_usages = sort(c("Ni","Pa","Rp","Co","Vt")), mois = x,
+                                 space="GE") )
+  }
   
   # quand D schoener mensuel, calcul mean + sd
-  if(any(fonction_applyschoener == "E_obs" | fonction_applyschoener == "G_proba")){
+  if(any(fonction_applyschoener == "E_obs" | fonction_applyschoener == "G_proba" |
+         fonction_applyschoener == "E_proba_filter")){
     
     # Rassembler les matrices au cours de l'été
     D_summer <- append(list(D_mai, D_juin), D_jui_ao_sep)
@@ -397,6 +493,33 @@ schoenerD.stats <- function(fonction_applyschoener, chemin_save){
     df_mean_sd_D_obs
     write.csv(df_mean_sd_D_obs, 
               paste0(chemin_save,"/mat_schoener_d_mean_sd_summer.csv"))
+    
+    # Mettre en forme la table (gradient bleu/rouge)
+    df_mean_sd_D_obs
+    
+    library(flextable)
+    
+    df_mean_sd_D_obs %>%
+      flextable() %>%
+      bg(j = 2:ncol(df_mean_sd_D_obs),
+         bg = function(x){
+           out <- rep("transparent", length(x))
+           out[x < .1] <- "light blue"
+           out[x > .5] <- "coral"
+           out
+         })
+    
+    library(ztable)
+    options(ztable.type="html")
+    
+    ztable(M) %>%
+      makeHeatmap()
+    
+    ztable(M) %>%
+      makeHeatmap() %>%
+      ztable2flextable()
+    
+    
   }
 }
 
@@ -445,7 +568,7 @@ inter_mois <- function(mois){
   
   # masquer par contour zone d'étude car usages VTT et rando ont une emprise plus large
   stack_us <- raster::mask(stack_us, limiteN2000)
-  
+  plot(stack_us, na.col="black")
   surf_1_pix <- res(stack_us)[1]*res(stack_us)[2] # en m²
   
   M <- matrix(nrow =  dim(stack_us)[3],ncol = dim(stack_us)[3],
@@ -511,8 +634,8 @@ MeanSd_Surface_Month <- function(liste_de_matrices_mensuelle,
 pInter_fCutOff <- function(mois, space){
   
   # TEST
-  mois = NULL # NULL "juin"
-  space = "E" # "G" 'E'
+  mois = "juin" # NULL "juin"
+  space = "G" # "G" 'E'
   
   if(space == "G"){
     # load raster of proba for month studied
@@ -534,6 +657,10 @@ pInter_fCutOff <- function(mois, space){
     names(stack_us) <- unlist(lapply(noms_us_ord, function(x) paste0(x,c("_obs","_proba","_pred"))))
     # conserve proba layer = 2nd
     stack_proba <- stack_us %>% subset(grep("proba", names(stack_us)))
+   
+    #  stack_pred <- stack_us %>% subset(grep("pred", names(stack_us)))
+    # plot(stack_pred, na.col='black')
+    
     # transform to df
     df_proba_us <- data.frame(data.table(stack_proba[]))
     
@@ -788,7 +915,7 @@ fit = "2_axes"
 
 #### E-space ####
 schoener_D_Espace_path = paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
-                                fit,"/",algorithme,"/Schoener_D/E_space") 
+                                fit,"/",algorithme,"/overlap_metrics/E_space") 
 if(!dir.exists(schoener_D_Espace_path)){dir.create(schoener_D_Espace_path, recursive = T)}
 
 ##### Schoener D abond obs #####
@@ -803,6 +930,12 @@ path_save <- paste0(schoener_D_Espace_path,"/proba/")
 if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
 schoenerD.stats("E_proba", path_save)
 
+#####  Schoener D sur probabilités issues SDM, projetées dans esp env mais filtré par réalité ##### 
+path_save <- paste0(schoener_D_Espace_path,"/proba_filter/")
+if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
+
+schoenerD.stats("E_proba_filter", path_save)
+
 #####  % surface niche binarisé (en fonction cutoff) ##### 
 
 path_save <- paste0(schoener_D_Espace_path,"/surface_niche/")
@@ -810,7 +943,7 @@ if(!dir.exists(path_save)){dir.create(path_save, recursive = T)}
 
 #### G-space ####
 schoener_D_Gspace_path = paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
-                                fit,"/",algorithme,"/Schoener_D/G_space") 
+                                fit,"/",algorithme,"/overlap_metrics/G_space") 
 if(!dir.exists(schoener_D_Gspace_path)){dir.create(schoener_D_Gspace_path)}
 
 ##### % surface obs #####
