@@ -271,7 +271,7 @@ applyD_Schoener_proba_pred <- function(liste_usages,
     #trier les usages
     list_rast <- list_rast[grep(paste(liste_usages, collapse="|"), list_rast)]
     # Load rasters
-    stack_us = stack(list_rast[grep(mois,list_rast)])
+    stack_us = raster::stack(list_rast[grep(mois,list_rast)])
     # rename with use names
     names(stack_us) <- unlist(lapply(noms_us_ord, function(x) paste0(x,c("_obs","_proba","_pred"))))
     # conserve proba layer = 2nd
@@ -279,12 +279,15 @@ applyD_Schoener_proba_pred <- function(liste_usages,
 
     # transform to df
     df_proba_us <- data.frame(data.table(stack_proba[]))
+    
     df_proba_us1 <- cbind(coordinates(stack_proba),df_proba_us)
     
-    # get x/y/axe1/axe2
-    df_valenv <- as.data.frame(fread(list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
-                                  pattern = ".csv$", 
-                                  recursive = F, full.names = T)[1], drop="V1"))
+    # get x/y/axe1/axe2 POUR LE MOIS ETUDIE !!!!
+    df_valenv_all <- list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
+               pattern = "dt_probUs", 
+               recursive = T, full.names = T)
+    df_valenv_all <- df_valenv_all[grep(mois,df_valenv_all)]
+    df_valenv <- as.data.frame(fread(df_valenv_all[1], dec=","))
     ind <- c(grep("axe1",names(df_valenv)),
              grep("axe2",names(df_valenv)),
              grep("^x$",names(df_valenv)),
@@ -333,7 +336,7 @@ applyD_Schoener_proba_pred <- function(liste_usages,
       ylim(-1,1)+
       labs(x="Environmental axis 1",y="Environmental axis 2",
            color="Probability of\noccurrence")+
-      scale_color_distiller(palette ="RdBu",direction=1)+
+      scale_color_distiller(palette ="RdBu",direction=1,limits=c(0,1))+
       facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)+
       theme(panel.background = element_rect(fill="white"),
             panel.grid.major = element_line(colour="grey")) +
@@ -343,6 +346,141 @@ applyD_Schoener_proba_pred <- function(liste_usages,
   png(file = paste0(path_save,"/proba_G_in_E_",mois,".png"),width=1400, height=800)
   plot(P)
   dev.off()
+  
+  # TODO : grid proba
+  
+  # Filtrer entre -1 et 1
+  dt_uses_env2 =  df_proba_us_plot_new %>% 
+    filter( axe1 >= -1 ) %>%
+    filter( axe2 >= -1 ) %>%
+    filter( axe1 <= 1 ) %>%
+    filter( axe2 <= 1 ) 
+  
+  # Grid 100 * 100
+  dt_uses_env_grid = dt_uses_env2 %>% mutate(
+    cut_x = cut(axe1, breaks = round(seq(from = -1, to = 1, length.out = 100),2),
+                include.lowest = T),
+    cut_y = cut(axe2, breaks = round(seq(from = -1, to = 1, length.out = 100),2),
+                include.lowest = T)
+  ) %>%
+    group_by(cut_x, cut_y,Use, .drop = FALSE) %>% 
+    summarise(n_bin = n(), 
+              med = median(Proba,na.rm=T),
+              #mean = mean(Proba, na.rm=T),
+              Use=Use)
+  
+  # correction des densités par la disponibilité
+  MAX_N = max(dt_uses_env_grid$n_bin,na.rm=T)
+  dt_uses_env_grid$e_ij <- dt_uses_env_grid$n_bin / MAX_N
+  
+  brk_lbs <- c("[-1,-0.98]","(-0.52,-0.49]","(-0.01,0.01]","(0.49,0.52]","(0.98,1]")
+  
+  P1 =  dt_uses_env_grid %>% 
+    ggplot(aes(cut_x, cut_y, colour=e_ij)) +
+    geom_point(size=2) +
+    scale_colour_distiller(palette ="Spectral",na.value = "transparent") +
+    labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Environment Availabity")+
+    scale_x_discrete(labels = brk_lbs,breaks=brk_lbs)+
+    scale_y_discrete(labels = brk_lbs,breaks=brk_lbs)+
+    facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)+
+    theme(panel.background = element_rect(fill="white"),
+          panel.grid.major = element_line(colour="grey"),
+          axis.text.x= element_text(angle = 45, hjust = 1),
+          text = element_text(size=15)) +
+    guides(scale = "none")
+
+  png(file = paste0(path_save,"/available_environment_",mois,".png"),width=1400, height=800)
+  plot(P1)
+  dev.off()
+  
+  P2_sans_scale <-  dt_uses_env_grid %>% 
+    ggplot(aes(cut_x, cut_y, colour = med)) +
+    geom_point(size=2) +
+    scale_colour_distiller(palette ="RdBu",na.value = "transparent",direction=1,
+                           limits=c(0,1)) +
+    labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Median Probability Grided",
+         col = "Probability of\noccurrence")+
+    theme(axis.text.x= element_text(angle = 45, hjust = 1),
+          panel.background = element_rect(fill="white"),
+          panel.grid.major = element_line(colour="grey"),
+          text = element_text(size=15))+
+    scale_x_discrete(labels = brk_lbs,breaks=brk_lbs)+
+    scale_y_discrete(labels = brk_lbs,breaks=brk_lbs)+
+    facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)
+  
+  png(file = paste0(path_save,"/median_proba_",mois,".png"),width=1400, height=800)
+  plot(P2_sans_scale)
+  dev.off()
+  
+  # # scale de la médiane (pour que max = 1)
+  # dt_uses_env_grid <- dt_uses_env_grid %>%
+  #   group_by(Use) %>%
+  #   mutate(med_scale = med/max(med,na.rm=T))
+  # 
+  # P2 <- dt_uses_env_grid %>% 
+  #   ggplot(aes(cut_x, cut_y, colour = med_scale)) +
+  #   geom_point( size=2) +
+  #   scale_colour_distiller(palette ="RdBu",na.value = "transparent",direction=1,
+  #                          limits=c(0,1)) +
+  #   labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Median Probability Scaled Grided",
+  #        col = "Probability of\noccurrence")+
+  #   theme(panel.background = element_rect(fill="white"),
+  #         panel.grid.major = element_line(colour="grey"),
+  #         axis.text.x= element_text(angle = 45, hjust = 1)) +
+  #   scale_x_discrete(labels = brk_lbs,breaks=brk_lbs)+
+  #   scale_y_discrete(labels = brk_lbs,breaks=brk_lbs)+
+  #   facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)
+  # png(file = paste0(path_save,"/median_proba_scaled_",mois,".png"),width=1400, height=800)
+  # plot(P2)
+  # dev.off()
+  
+  # proba med scale corrigée disponibilité milieu
+  dt_uses_env_grid <- dt_uses_env_grid %>%
+    group_by(Use) %>%
+    mutate(z_ij = (med/e_ij) / max((med/e_ij),na.rm=T))
+  
+  # Pz_ij <-  dt_uses_env_grid %>% 
+  #   ggplot(aes(cut_x, cut_y, colour = z_ij)) +
+  #   geom_point( size=2) +
+  #   scale_colour_distiller(palette ="Spectral",na.value = "transparent",
+  #                          limits=c(0,1)) +
+  #   labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Median Occupancy",
+  #        col = "Probability of\noccupancy")+
+  #   theme(axis.text.x= element_text(angle = 45, hjust = 1))+
+  #   scale_x_discrete(labels = brk_lbs,breaks=brk_lbs)+
+  #   scale_y_discrete(labels = brk_lbs,breaks=brk_lbs)+
+  #   facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)
+  
+  Pz_ij2 <-  dt_uses_env_grid %>% 
+    ggplot(aes(cut_x, cut_y, colour = z_ij)) +
+    geom_point( size=2) +
+    scale_colour_distiller(palette ="RdBu",na.value = "transparent",direction=1,
+                           limits=c(0,1)) +
+    labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Median Occupancy",
+         col = "Probability of\noccupancy")+
+    theme(axis.text.x= element_text(angle = 45, hjust = 1),
+          panel.background = element_rect(fill="white"),
+          panel.grid.major = element_line(colour="grey"),
+          text = element_text(size=15))+
+    scale_x_discrete(labels = brk_lbs,breaks=brk_lbs)+
+    scale_y_discrete(labels = brk_lbs,breaks=brk_lbs)+
+    facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)
+  
+  png(file = paste0(path_save,"/median_occupancy_",mois,".png"),width=1400, height=800)
+  plot(Pz_ij2)
+  dev.off()
+  
+  test <- dt_uses_env_grid %>% 
+    dplyr::select(Use,med, z_ij,cut_x,cut_y) %>%
+    group_by(Use,cut_x,cut_y) %>%
+    distinct() %>%
+    pivot_wider(id_cols= c(cut_x,cut_y),
+                names_from = Use, values_from = c(med,z_ij))
+  
+  df_proba_us <- list(as.data.frame(test[,grep("med",names(test))]),
+                      as.data.frame(test[,grep("z_ij",names(test))]))
+  names(df_proba_us) <- c("median","occupancy")
+
   }
   if(space == "E"){
     
@@ -363,18 +501,45 @@ applyD_Schoener_proba_pred <- function(liste_usages,
     df_proba_us <- df_proba_us %>% subset(select=-grep("axe", names(df_proba_us)))
   }
 
-  # rescale chaque proba (pour que ça fasse une distrib de proba => sum = 1)
-  df_proba_us_scale <- as.data.frame(apply(df_proba_us,
-                                           2,
-                                           function(x) x/sum(x, na.rm=T)))
-  #apply(df_proba_us_scale, 2, function(x) sum(x, na.rm=T))
-  
-  # Schoener D pairwise computation matrix
-  pairwise_D <- matrix(nrow = length(liste_usages), ncol = length(liste_usages), 
-                       dimnames = list(liste_usages,liste_usages) )
-  for(u1 in 1:length(liste_usages)){
-    for(u2 in 1:length(liste_usages)){
-      pairwise_D[u1,u2]  <- DSchoener(df_proba_us_scale[,u1], df_proba_us_scale[,u2])
+  if(is.list(df_proba_us)){
+    
+    med_df_proba_us <- df_proba_us[[1]]
+    df_proba_us_scale_med <- as.data.frame(apply(med_df_proba_us,
+                                             2,
+                                             function(x) x/sum(x, na.rm=T)))
+    occ_df_proba_us <- df_proba_us[[2]]
+    df_proba_us_scale_occ <- as.data.frame(apply(occ_df_proba_us,
+                                             2,
+                                             function(x) x/sum(x, na.rm=T)))
+    
+    pairwise_D_med <- matrix(nrow = length(liste_usages), ncol = length(liste_usages), 
+                         dimnames = list(liste_usages,liste_usages))
+    pairwise_D_occ <- matrix(nrow = length(liste_usages), ncol = length(liste_usages), 
+                             dimnames = list(liste_usages,liste_usages))
+    for(u1 in 1:length(liste_usages)){
+      for(u2 in 1:length(liste_usages)){
+        pairwise_D_med[u1,u2]  <- DSchoener(df_proba_us_scale_med[,u1], df_proba_us_scale_med[,u2])
+        pairwise_D_occ[u1,u2]  <- DSchoener(df_proba_us_scale_occ[,u1], df_proba_us_scale_occ[,u2])
+      }
+    }
+    pairwise_D <- list(pairwise_D_med,pairwise_D_occ)
+    names(pairwise_D) <- c("median","occupancy")
+    
+  }else{
+    # rescale chaque proba (pour que ça fasse une distrib de proba => sum = 1)
+    df_proba_us_scale <- as.data.frame(apply(df_proba_us,
+                                             2,
+                                             function(x) x/sum(x, na.rm=T)))
+    #apply(df_proba_us_scale, 2, function(x) sum(x, na.rm=T))
+    
+    
+    # Schoener D pairwise computation matrix
+    pairwise_D <- matrix(nrow = length(liste_usages), ncol = length(liste_usages), 
+                         dimnames = list(liste_usages,liste_usages) )
+    for(u1 in 1:length(liste_usages)){
+      for(u2 in 1:length(liste_usages)){
+        pairwise_D[u1,u2]  <- DSchoener(df_proba_us_scale[,u1], df_proba_us_scale[,u2])
+      }
     }
   }
   return(pairwise_D)
@@ -446,20 +611,21 @@ schoenerD.stats <- function(fonction_applyschoener, chemin_save){
     D_jui_ao_sep <- lapply(c("juillet","aout","septembre"), function(x) 
       applyD_Schoener_proba_pred(liste_usages = sort(c("Ni","Pa","Rp","Co","Vt")), mois = x,
                                  space="GE") )
+
+    D_summer_med <- list(D_mai$median, D_juin$median,
+                           D_jui_ao_sep[[1]]$median,D_jui_ao_sep[[2]]$median,D_jui_ao_sep[[3]]$median
+                           )
+    D_summer_occ <- list(D_mai$occupancy, D_juin$occupancy,
+                           D_jui_ao_sep[[1]]$occupancy,D_jui_ao_sep[[2]]$occupancy,D_jui_ao_sep[[3]]$occupancy)
   }
   
-  # quand D schoener mensuel, calcul mean + sd
-  if(any(fonction_applyschoener == "E_obs" | fonction_applyschoener == "G_proba" |
-         fonction_applyschoener == "E_proba_filter")){
-    
-    # Rassembler les matrices au cours de l'été
-    D_summer <- append(list(D_mai, D_juin), D_jui_ao_sep)
+  saveMatrixSchoener <- function(matrix_M,name_save){
     # Combler les vides quand absence usage pendant un mois
-    a = unlist(lapply(1:length(D_summer ), function(x) dim(D_summer[[x]])[1]))
-    higher_M <- D_summer[[which.max(a)]]
-    D_summer2 <- lapply(1:length(D_summer), 
+    a = unlist(lapply(1:length(matrix_M ), function(x) dim(matrix_M[[x]])[1]))
+    higher_M <- matrix_M[[which.max(a)]]
+    D_summer2 <- lapply(1:length(matrix_M), 
                         function(x) MatchMatrixDims(biggest_mat = higher_M, 
-                                                    mat_to_expand =  D_summer[[x]]))
+                                                    mat_to_expand =  matrix_M[[x]]))
     # remove upper triangle
     D_summer2 <- lapply(1:length(D_summer2), function(x) {
       M <- D_summer2[[x]]
@@ -469,20 +635,18 @@ schoenerD.stats <- function(fonction_applyschoener, chemin_save){
     
     # save matrices
     save(D_summer2,
-         file = paste0(chemin_save,"/matrices_schoener_d.rdata"))
+         file = paste0(chemin_save,"/matrices_schoener_d_",name_save,".rdata"))
     # save in csv
     for(i in 1:length(D_summer2)){
       write.csv(D_summer2[i], 
-                paste0(chemin_save,"/matrice_schoener_d_",names(D_summer2)[i],".csv"))
+                paste0(chemin_save,"/matrice_schoener_d_",name_save,"_",names(D_summer2)[i],".csv"))
     }
-    
     # mean + sd throught summer
     M_mean_sd <- meansd4listMatrices(D_summer2, sort(liste.usages))
     for(i in 1:length(M_mean_sd)){
       write.csv(M_mean_sd[i], 
-                paste0(chemin_save,"/schoener_d_",names(M_mean_sd)[i],".csv"))
+                paste0(chemin_save,"/schoener_d_",name_save,"_",names(M_mean_sd)[i],".csv"))
     }
-    
     M = matrix(paste0(round(M_mean_sd$mean, 2), " (", 
                       round(M_mean_sd$sd, 2), ")"),
                6,6,
@@ -492,34 +656,20 @@ schoenerD.stats <- function(fonction_applyschoener, chemin_save){
     df_mean_sd_D_obs = as.data.frame(M)
     df_mean_sd_D_obs
     write.csv(df_mean_sd_D_obs, 
-              paste0(chemin_save,"/mat_schoener_d_mean_sd_summer.csv"))
+              paste0(chemin_save,"/mat_schoener_d_mean_sd_summer_",name_save,".csv"))
     
-    # Mettre en forme la table (gradient bleu/rouge)
-    df_mean_sd_D_obs
-    
-    library(flextable)
-    
-    df_mean_sd_D_obs %>%
-      flextable() %>%
-      bg(j = 2:ncol(df_mean_sd_D_obs),
-         bg = function(x){
-           out <- rep("transparent", length(x))
-           out[x < .1] <- "light blue"
-           out[x > .5] <- "coral"
-           out
-         })
-    
-    library(ztable)
-    options(ztable.type="html")
-    
-    ztable(M) %>%
-      makeHeatmap()
-    
-    ztable(M) %>%
-      makeHeatmap() %>%
-      ztable2flextable()
-    
-    
+  }
+  
+  # quand D schoener mensuel, calcul mean + sd
+  if(any(fonction_applyschoener == "E_obs" | fonction_applyschoener == "G_proba")){
+    # Rassembler les matrices au cours de l'été
+    D_summer <- append(list(D_mai, D_juin), D_jui_ao_sep)
+    saveMatrixSchoener(D_summer,"_")
+  }
+  if(fonction_applyschoener == "E_proba_filter"){
+    saveMatrixSchoener(D_summer_med,"median")
+    saveMatrixSchoener(D_summer_occ,"occupancy")
+
   }
 }
 
