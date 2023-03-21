@@ -2,7 +2,7 @@
 # Nom : Modélisation des usages
 # Auteure : Perle Charlot
 # Date de création : 09-09-2022
-# Dates de modification : 03-03-2023
+# Dates de modification : 20-03-2023
 
 ### Librairies -------------------------------------
 library(glmmfields)
@@ -224,9 +224,9 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
   
   # #TEST
   # nom_court_usage = "Rp"
-  # type_donnees = "ACP_avec_ponderation"
+  # type_donnees = "brute"
   # ## "ACP_avec_ponderation" "ACP_sans_ponderation" "ACP_ACP" "brute"
-  # fit = "2_axes" # "2_axes" or "all_simple"
+  # fit = "all_simple" # "2_axes" or "all_simple"
   # algorithme = "glm"
   
   cat("\n Usage ", nom_court_usage," - analyse ",type_donnees,".\n")
@@ -293,7 +293,7 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
     b = merge(a, col_vars_sub, by="Nom",sort=FALSE)
     b2 = b$colour_dim
     
-    plot = data_glm_s_p %>%
+    plot <- data_glm_s_p %>%
       ggplot(aes(x=valeurs, y=variables, colour=as.factor(usage))) +
       geom_boxplot()+ 
       scale_colour_discrete(name = nom_beau, labels = c("Absence", "Présence"))+
@@ -402,18 +402,18 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
     # TODO : tester manuelle si ça marche (RF)
     # vachement long
     # RF (que avec modèle simple, sans termes d'interactions ou cubiques)
-    model.rf <- caret::train(formula.usage,
-                             train2,
-                             method = "ranger",
-                             trControl = trainControl(method="cv", number = 5, 
-                                                      verboseIter = T, summaryFunction = twoClassSummary,
-                                                      classProbs = T,savePredictions=TRUE),
-                             metric= 'ROC',
-                             weights = w.vect)
-    
-    # Enregistrer le modèle pour pouvoir ensuite echo = F
-    save(model.rf, file = paste0(output_path,"/niches/",type_donnees,
-                                 "/",nom_court_usage,"/",fit,"/modele_rf.rdata"))
+    # model.rf <- caret::train(formula.usage,
+    #                          train2,
+    #                          method = "ranger",
+    #                          trControl = trainControl(method="cv", number = 5, 
+    #                                                   verboseIter = T, summaryFunction = twoClassSummary,
+    #                                                   classProbs = T,savePredictions=TRUE),
+    #                          metric= 'ROC',
+    #                          weights = w.vect)
+    # 
+    # # Enregistrer le modèle pour pouvoir ensuite echo = F
+    # save(model.rf, file = paste0(output_path,"/niches/",type_donnees,
+    #                              "/",nom_court_usage,"/",fit,"/modele_rf.rdata"))
     
     # # TODO : regarder comment comparer modèle GLm / RF
     # # Comparaison entre modèles
@@ -448,8 +448,9 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
                               trControl = fitControl,
                               metric = 'Accuracy',
                               weights = weights)
-    cat("\n  Modèle avec 2 axes fitté.\n")
-    model.fit = model.glm
+    cat("\n  Modèle glm fitté.\n")
+    model.fit <- model.glm
+    summary(model.fit)
   }
 
   # TODO later
@@ -473,10 +474,9 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
 
     model.fit = model.gam
   }
-  
 
   # visualiser stat
-  stats = c(model.fit$results) # statistics metrics (mean & sd)
+  stats <- c(model.fit$results) # statistics metrics (mean & sd)
   stats <- data.frame(Mean= unlist(stats[2:5]),
                       sd= unlist(stats[6:9]),
                       Category=c("AUC","Precision","Recall","F"))
@@ -634,7 +634,7 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
                                 "/",nom_court_usage,"/",fit,"/modele_",algorithme,".rdata"))
 
   # Tester fiabilité modèle : score de Brier, matrice de confusion et AUC/ROC
-  brier_score = BrierScore(model.fit$finalModel)
+  brier_score <- BrierScore(model.fit$finalModel)
   # between 0 and 1
   # the lower the Brier score is the better the predictions are calibrated
   # parait bien adapté quand outcome binaire car prend en compte les proba
@@ -647,17 +647,12 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
   names(ths) <- gsub(pattern =" ", replacement="_", x=names(ths))
   
   # J = Youden's statistics (on veut max(J))
-  # Dist = distance to the best possible cutoff (i.e. perfect sensitivity and specificity) (on veut min(Dist))
+  # Dist = distance to the best possible cutoff (i.e. perfect sensitivity and specificity) 
+  #(on veut min(Dist))
   
   ind_thr = which(ths[,"Dist"] == min(ths[,"Dist"], na.rm=T))
   # quand plusieurs thresholds sont possible
   if(length(ind_thr)>1){
-    
-    # proba_threshold = mean(test$presence) # totalement arbitraire ...
-    # # J'en suis arrivée à mettre ce threshold
-    # # car pour l'usage Couchade, les probabilités sont toutes < 0.12
-    
-    # TODO : vérifier que ça fonctionne
     
     ths_2 <- ths[ind_thr,]
     ind_thr_2 = which(ths_2[,"Balanced_Accuracy"] == max(ths_2[,"Balanced_Accuracy"], na.rm=T))
@@ -707,7 +702,6 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
   print(roc(test2$usage ~ test2$prediction$presence, plot = TRUE, print.auc = TRUE))
   dev.off()
   
-
   test2$usage_predicted <- as.factor(ifelse(test2$prediction$presence > proba_threshold, "presence","absence"))
   # Sauvegarde datasettest
   write.csv(test2, paste0(output_path,"/niches/",type_donnees,
@@ -717,6 +711,30 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
   save(CM, file=paste0(output_path,"/niches/",type_donnees,
                        "/",nom_court_usage,"/",fit,"/CM_",algorithme,".rdata"))
 
+  # TSS = sensitivity + specificity - 1
+  TSS <- CM$byClass["Sensitivity"] + CM$byClass["Specificity"] - 1 
+  # df avec toutes les stats de CM$byClass + TSS + AUC + Brier
+  a <- as.data.frame(t(CM$byClass))
+  b <- data.frame(TSS = TSS,
+             AUC = roc(test2$usage ~ test2$prediction$presence, plot = F, print.auc =F)$auc,
+             Brier = brier_score)
+  assessing_metrics <- cbind(a,b)
+  assessing_metrics$Use <- nom_court_usage
+  rownames(assessing_metrics) <- NULL
+  
+  t = try(fread(paste0(output_path,"/niches/",type_donnees,
+                         "/models_evaluation_metrics.csv")),
+            silent = TRUE)
+  if(inherits(t, "try-error")){
+    assessing_metrics <- assessing_metrics
+  }else {
+    assessing_metrics1 <- as.data.frame(fread(paste0(output_path,"/niches/",type_donnees,
+                                      "/models_evaluation_metrics.csv"),drop="V1"))
+    assessing_metrics <- rbind(assessing_metrics1, assessing_metrics)
+  }
+  write.csv(assessing_metrics, paste0(output_path,"/niches/",type_donnees,
+                          "/models_evaluation_metrics.csv"))
+  
   # Prédiction spatialisée
   predUsageMois <- function(mois, algorithme){
     # # # TEST
@@ -766,25 +784,25 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
                          "/predictions_",algorithme,"/rasters_pred_",mois,".tif"),
                   overwrite=TRUE)
       
-      if(fit == "all_simple"){
-        
-        if(!dir.exists(paste0(output_path,"/niches/",type_donnees,"/",
-                              nom_court_usage,"/",fit,"/predictions_RF/"))){
-          dir.create(paste0(output_path,"/niches/",type_donnees,"/",
-                            nom_court_usage,"/",fit,"/predictions_RF/"))
-        }
-        
-        prob_spatial_rf <- predict(model.rf, df.env2, type="prob")
-        raster_prob_rf = rasterFromXYZ(data.frame(df.env2$x, df.env2$y, prob_spatial_rf$presence), crs=EPSG_2154)
-        all_rasters = stack(raster_obs, raster_prob_rf)
-        names(all_rasters) = c("observation","probabilite_presence")
-        
-        writeRaster(all_rasters, 
-                    paste0(output_path,"/niches/",type_donnees,"/",
-                           nom_court_usage,"/",fit,
-                           "/predictions_RF/rasters_pred_",mois,".tif"),
-                    overwrite=TRUE)
-      }
+      # if(fit == "all_simple"){
+      #   
+      #   if(!dir.exists(paste0(output_path,"/niches/",type_donnees,"/",
+      #                         nom_court_usage,"/",fit,"/predictions_RF/"))){
+      #     dir.create(paste0(output_path,"/niches/",type_donnees,"/",
+      #                       nom_court_usage,"/",fit,"/predictions_RF/"))
+      #   }
+      #   
+      #   prob_spatial_rf <- predict(model.rf, df.env2, type="prob")
+      #   raster_prob_rf = rasterFromXYZ(data.frame(df.env2$x, df.env2$y, prob_spatial_rf$presence), crs=EPSG_2154)
+      #   all_rasters = stack(raster_obs, raster_prob_rf)
+      #   names(all_rasters) = c("observation","probabilite_presence")
+      #   
+      #   writeRaster(all_rasters, 
+      #               paste0(output_path,"/niches/",type_donnees,"/",
+      #                      nom_court_usage,"/",fit,
+      #                      "/predictions_RF/rasters_pred_",mois,".tif"),
+      #               overwrite=TRUE)
+      # }
       cat(paste0("\nL'usage ", nom_beau," a été prédit pour le mois de ",mois,"."))
     }
   }
@@ -1858,13 +1876,13 @@ for(type.de.donnees in c("ACP_sans_ponderation","ACP_avec_ponderation","ACP_ACP"
            "VTT",
            "parade"),function(x) ExtractData1Use(usage=x, type_donnees = type.de.donnees))
 }
-# # Exemple pour un seul type de prédicteurs
-# lapply(c("nidification",
-#          "couchade",
-#          "paturage",
-#          "randonnee_pedestre",
-#          "VTT",
-#          "parade"),function(x) ExtractData1Use(usage=x, type_donnees = "brute"))
+# Exemple pour un seul type de prédicteurs
+lapply(c("nidification",
+         "couchade",
+         "paturage",
+         "randonnee_pedestre",
+         "VTT",
+         "parade"),function(x) ExtractData1Use(usage=x, type_donnees = "brute"))
 
 # 2 - Exploitation des données : création modèle (pour l'instant, GLM)
 #     selon le type de prédicteurs environnement utilisé (les variables brutes,
@@ -1886,9 +1904,14 @@ for(type.de.donnees in c("ACP_sans_ponderation","ACP_avec_ponderation","ACP_ACP"
 }
 
 lapply(liste.usages, function(x) CreateModelUsage(nom_court_usage=x,
-                                                  type_donnees = "ACP_ACP",
-                                                  fit="2_axes",
+                                                  type_donnees = "brute",
+                                                  fit="all_simple",
                                                   algorithme ="glm"))
+
+CreateModelUsage(nom_court_usage="Pa",
+                 type_donnees = "brute",
+                 fit="all_simple",
+                 algorithme ="glm")
 
 # 3 - Visualisation des niches écologiques des usages
 # # pour un usage, sur tous les mois
