@@ -1181,11 +1181,11 @@ predUsageMois_grid <- function(usage, type_donnees, fit, algorithme,range){
 # fonction qui sort les graphiques des niches d'usages
 NichePlot <- function(usage,mois,type_donnees,fit, algorithme){
   # #TEST
-  # usage = "Ni"
-  # mois = "juin"
-  # type_donnees = "ACP_avec_ponderation" # "ACP_ACP" ou "ACP_avec_ponderation" ou
+  # usage = "Vt"
+  # mois = "aout"
+  # type_donnees = "brute" # "ACP_ACP" ou "ACP_avec_ponderation" ou
   # # "ACP_sans_ponderation" ou "brute"
-  # fit = "2_axes" # "2_axes" ou all_simple"
+  # fit = "all_simple" # "2_axes" ou all_simple"
   # algorithme = "glm"
   
   if(type_donnees == "ACP_ACP"){
@@ -1195,7 +1195,9 @@ NichePlot <- function(usage,mois,type_donnees,fit, algorithme){
     path_predicteurs = paste0(type_donnees,"/summer/")
   }
   # TODO : if model == "brute"
-  
+  if(type_donnees == "brute"){
+    path_predicteurs = paste0("ACP_avec_ponderation/summer/")
+  }
   
   # La niche potentielle d'un usage n'est pas dépendante du mois
   # car le modèle de distribution est construit avec toutes les données mensuelles
@@ -1946,6 +1948,11 @@ lapply(c("ACP_sans_ponderation","ACP_avec_ponderation","ACP_ACP"), function(x) N
 
 NicheOverlap(usages=liste.usages,
              type_donnees = "ACP_sans_ponderation",
+             fit="2_axes",
+             algorithme = "glm")
+
+NicheOverlap(usages=liste.usages,
+             type_donnees = "ACP_ACP",
              fit="2_axes",
              algorithme = "glm")
 
