@@ -2,7 +2,7 @@
 # Nom : Calcul indices overlap
 # Auteure : Perle Charlot
 # Date de création : 10-03-2023
-# Dates de modification : 20-03-2023
+# Dates de modification : 27-03-2023
 
 ### Librairies -------------------------------------
 library(data.table)
@@ -236,10 +236,15 @@ applyD_Schoener_proba_pred <- function(liste_usages,
                                        space){
 
   # # TEST
-  # liste_usages = sort(c("Lk","Rp","Vt")) #sort(liste.usages)
-  # mois = "mai" # NULL "juin"
-  # space = "GE" # "G"
+  # liste_usages = sort(c("Ni","Vt")) #sort(liste.usages)
+  # mois = "juin" # NULL "juin"
+  # space = "G" # "G"
   
+  
+  df_time <- data.frame(mois = c("mai","juin","juillet","aout","septembre"),
+             english_month = c("May","June","July","August","September")
+             )
+  english_month <- df_time$english_month[df_time$mois == mois]
   # sortir usage nom
   noms_us_ord <- liste_usages[order(liste_usages)]
   
@@ -262,6 +267,7 @@ applyD_Schoener_proba_pred <- function(liste_usages,
     df_proba_us <- data.frame(data.table(stack_proba[]))
   }
   if(space == "GE"){
+    
     # load raster of proba for month studied
     list_rast <- base::list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
                                   pattern = ".tif$", 
@@ -319,12 +325,39 @@ applyD_Schoener_proba_pred <- function(liste_usages,
       theme(panel.background = element_rect(fill="white"),
             panel.grid.major = element_line(colour="grey"),
             legend.position = "right") +
-      labs(fill="Probability of\noccurrence")+
+      labs(fill="Probability of\noccurrence", title = english_month)+
       facet_wrap(.~Use,labeller = labeller(Use = supp.labs),drop=F)+
       coord_equal()+
-      theme(text = element_text(size=15)) 
-    #save plot
+      theme(text = element_text(size=15))
+    
+    map2 <- ggplot(data = df_proba_us_plot_new) +
+      geom_raster(aes(x = x, y = y, fill = Proba)) +
+      scale_fill_distiller(palette ="RdBu",direction=1) +
+      #theme_void() +
+      theme(panel.background = element_rect(fill="white"),
+            panel.grid.major = element_line(colour="grey"),
+            legend.position = "right") +
+      labs(fill="Probability of\noccurrence", title = english_month)+
+      facet_wrap(.~Use,labeller = labeller(Use = supp.labs),drop=T)+
+      coord_equal()+
+      theme(text = element_text(size=15))
     png(file = paste0(path_save,"/map_proba_G_",mois,".png"),width=1400, height=800)
+    plot(map2)
+    dev.off()
+    
+    # ggplot(data = df_proba_us_plot_new) +
+    #   geom_raster(aes(x = x, y = y, fill = Proba)) +
+    #   scale_fill_fermenter(palette ="RdBu",direction=1,breaks = seq(0,1,0.1)) +
+    #   theme(panel.background = element_rect(fill="white"),
+    #         panel.grid.major = element_line(colour="grey"),
+    #         legend.position = "right") +
+    #   labs(fill="Probability of\noccurrence")+
+    #   facet_wrap(.~Use,labeller = labeller(Use = supp.labs),drop=T)+
+    #   coord_equal()+
+    #   theme(text = element_text(size=15))
+    
+    #save plot
+    png(file = paste0(path_save,"/map2_proba_G_",mois,".png"),width=1400, height=800)
     plot(map)
     dev.off()
     
@@ -335,9 +368,22 @@ applyD_Schoener_proba_pred <- function(liste_usages,
       xlim(-1,1)+
       ylim(-1,1)+
       labs(x="Environmental axis 1",y="Environmental axis 2",
-           color="Probability of\noccurrence")+
+           color="Probability of\noccurrence", title = english_month)+
       scale_color_distiller(palette ="RdBu",direction=1,limits=c(0,1))+
       facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)+
+      theme(panel.background = element_rect(fill="white"),
+            panel.grid.major = element_line(colour="grey")) +
+      guides(scale = "none")+
+      theme(text = element_text(size=15)) 
+    P2 <- df_proba_us_plot_new %>%
+      ggplot(aes(x=axe1,y=axe2, color=Proba)) +
+      geom_point()+
+      xlim(-1,1)+
+      ylim(-1,1)+
+      labs(x="Environmental axis 1",y="Environmental axis 2",
+           color="Probability of\noccurrence", title = english_month)+
+      scale_color_distiller(palette ="RdBu",direction=1,limits=c(0,1))+
+      facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=T)+
       theme(panel.background = element_rect(fill="white"),
             panel.grid.major = element_line(colour="grey")) +
       guides(scale = "none")+
@@ -345,6 +391,9 @@ applyD_Schoener_proba_pred <- function(liste_usages,
   #save plot
   png(file = paste0(path_save,"/proba_G_in_E_",mois,".png"),width=1400, height=800)
   plot(P)
+  dev.off()
+  png(file = paste0(path_save,"/proba2_G_in_E_",mois,".png"),width=1400, height=800)
+  plot(P2)
   dev.off()
   
   # TODO : grid proba
@@ -379,7 +428,8 @@ applyD_Schoener_proba_pred <- function(liste_usages,
     ggplot(aes(cut_x, cut_y, colour=e_ij)) +
     geom_point(size=2) +
     scale_colour_distiller(palette ="Spectral",na.value = "transparent") +
-    labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Environment Availabity")+
+    labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Environment Availabity",
+          subtitle = english_month)+
     scale_x_discrete(labels = brk_lbs,breaks=brk_lbs)+
     scale_y_discrete(labels = brk_lbs,breaks=brk_lbs)+
     facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)+
@@ -399,7 +449,7 @@ applyD_Schoener_proba_pred <- function(liste_usages,
     scale_colour_distiller(palette ="RdBu",na.value = "transparent",direction=1,
                            limits=c(0,1)) +
     labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Median Probability Grided",
-         col = "Probability of\noccurrence")+
+         col = "Probability of\noccurrence",subtitle = english_month)+
     theme(axis.text.x= element_text(angle = 45, hjust = 1),
           panel.background = element_rect(fill="white"),
           panel.grid.major = element_line(colour="grey"),
@@ -408,8 +458,45 @@ applyD_Schoener_proba_pred <- function(liste_usages,
     scale_y_discrete(labels = brk_lbs,breaks=brk_lbs)+
     facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)
   
+  # P2_sans_scale2 <-  dt_uses_env_grid %>% 
+  #   ggplot(aes(cut_x, cut_y, colour = med)) +
+  #   geom_point(size=3) +
+  #   scale_colour_distiller(palette ="RdBu",na.value = "transparent",direction=1,
+  #                          limits=c(0,1)) +
+  #   labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Median Probability Grided",
+  #        col = "Probability of\noccurrence")+
+  #   theme(axis.text.x= element_text(angle = 45, hjust = 1),
+  #         panel.background = element_rect(fill="white"),
+  #         panel.grid.major = element_line(colour="grey"),
+  #         text = element_text(size=15))+
+  #   scale_x_discrete(labels = brk_lbs,breaks=brk_lbs)+
+  #   scale_y_discrete(labels = brk_lbs,breaks=brk_lbs)+
+  #   facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=T)
+  
+  P2_sans_scale_hex <- dt_uses_env2  %>% 
+    ggplot(aes(axe1,axe2,z=Proba)) + 
+    stat_summary_hex(fun = function(x) median(x), bins=75,colour='grey')+
+    scale_fill_distiller(palette ="RdBu",na.value = "transparent",direction=1,
+                          limits=c(0,1)) +
+    facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=T)+
+    labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Median Probability Grided",
+         fill = "Median probability\nof occurrence",
+         subtitle = english_month)+
+    theme(axis.text.x= element_text(angle = 45, hjust = 1),
+          panel.background = element_rect(fill="white"),
+          panel.grid.major = element_line(colour="grey"),
+          text = element_text(size=15))+
+    xlim(-1,1)+ylim(-1,1)
+
+  
   png(file = paste0(path_save,"/median_proba_",mois,".png"),width=1400, height=800)
   plot(P2_sans_scale)
+  dev.off()
+  # png(file = paste0(path_save,"/median2_proba_",mois,".png"),width=1400, height=800)
+  # plot(P2_sans_scale2)
+  # dev.off()
+  png(file = paste0(path_save,"/median_hex_proba_",mois,".png"),width=1400, height=800)
+  plot(P2_sans_scale_hex)
   dev.off()
   
   # # scale de la médiane (pour que max = 1)
@@ -457,7 +544,8 @@ applyD_Schoener_proba_pred <- function(liste_usages,
     scale_colour_distiller(palette ="RdBu",na.value = "transparent",direction=1,
                            limits=c(0,1)) +
     labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Median Occupancy",
-         col = "Probability of\noccupancy")+
+         col = "Probability of\noccupancy",
+         subtitle = english_month)+
     theme(axis.text.x= element_text(angle = 45, hjust = 1),
           panel.background = element_rect(fill="white"),
           panel.grid.major = element_line(colour="grey"),
@@ -501,7 +589,7 @@ applyD_Schoener_proba_pred <- function(liste_usages,
     df_proba_us <- df_proba_us %>% subset(select=-grep("axe", names(df_proba_us)))
   }
 
-  if(is.list(df_proba_us)){
+  if(space == "GE"){
     
     med_df_proba_us <- df_proba_us[[1]]
     df_proba_us_scale_med <- as.data.frame(apply(med_df_proba_us,
@@ -531,8 +619,7 @@ applyD_Schoener_proba_pred <- function(liste_usages,
                                              2,
                                              function(x) x/sum(x, na.rm=T)))
     #apply(df_proba_us_scale, 2, function(x) sum(x, na.rm=T))
-    
-    
+
     # Schoener D pairwise computation matrix
     pairwise_D <- matrix(nrow = length(liste_usages), ncol = length(liste_usages), 
                          dimnames = list(liste_usages,liste_usages) )
@@ -568,10 +655,43 @@ meansd4listMatrices <- function(liste.matrices, liste.usages){
 
 schoenerD.stats <- function(fonction_applyschoener, chemin_save){
   # TEST
-  fonction_applyschoener = "E_proba_filter" # "E_obs" "E_proba"
+  fonction_applyschoener = "E_proba_filter" # "E_obs" "E_proba" "E_proba_filter
   chemin_save = path_save
   
   if(fonction_applyschoener == "G_proba"){
+    
+    # Colloque Cohabitation #####
+    D <- lapply(c("juin","juillet","aout","septembre"), function(x) 
+      applyD_Schoener_proba_pred(liste_usages = sort(c("Ni","Vt")), mois = x,
+                                 space="G"))
+    D_summer2 <- lapply(1:length(D), function(x) {
+      M <- D[[x]]
+      M[upper.tri(M)] <- NA
+      return(M)})
+    names(D_summer2) <- c("juin","juillet","aout","septembre")
+    # save matrices
+    save(D_summer2,
+         file = paste0(chemin_save,"/matrices_schoener_d_median.rdata"))
+    # save in csv
+    for(i in 1:length(D_summer2)){
+      write.csv(D_summer2[i], 
+                paste0(chemin_save,"/matrice_schoener_d_median_",names(D_summer2)[i],".csv"))
+    }
+    # mean + sd throught summer
+    M_mean_sd <- meansd4listMatrices(D, sort(c("Ni","Vt")))
+    M = matrix(paste0(round(M_mean_sd$mean, 2), " (", 
+                      round(M_mean_sd$sd, 2), ")"),
+               2,2,
+               dimnames = list(sort(c("Ni","Vt")),sort(c("Ni","Vt"))))
+    M[upper.tri(M)] <- NA
+    diag(M) <- 1
+    df_mean_sd_D_obs = as.data.frame(M)
+    df_mean_sd_D_obs
+    write.csv(df_mean_sd_D_obs, 
+              paste0(chemin_save,"/mat_schoener_d_mean_sd_summer_median.csv"))
+    # Colloque Cohabitation #####
+    
+    
     # en mai : que 3 usages
     D_mai <- applyD_Schoener_proba_pred(liste_usages = sort(c("Lk","Rp","Vt")), mois = c("mai"),space="G")
     # en juin : tous les usages
@@ -603,6 +723,41 @@ schoenerD.stats <- function(fonction_applyschoener, chemin_save){
   }
 
   if(fonction_applyschoener == "E_proba_filter"){
+
+    
+    
+    # Colloque Cohabitation #####
+    D <- lapply(c("juin","juillet","aout","septembre"), function(x) 
+      applyD_Schoener_proba_pred(liste_usages = sort(c("Ni","Vt")), mois = x,
+                                 space="GE") )
+    D_summer_med <- list(D[[1]]$median,D[[2]]$median,D[[3]]$median,D[[4]]$median)
+    D_summer2 <- lapply(1:length(D_summer_med), function(x) {
+      M <- D_summer_med[[x]]
+      M[upper.tri(M)] <- NA
+      return(M)})
+    names(D_summer2) <- c("juin","juillet","aout","septembre")
+    
+    # save matrices
+    save(D_summer2,
+         file = paste0(chemin_save,"/matrices_schoener_d_median.rdata"))
+    # save in csv
+    for(i in 1:length(D_summer2)){
+      write.csv(D_summer2[i], 
+                paste0(chemin_save,"/matrice_schoener_d_median_",names(D_summer2)[i],".csv"))
+    }
+    # mean + sd throught summer
+    M_mean_sd <- meansd4listMatrices(D_summer_med, sort(c("Ni","Vt")))
+    M = matrix(paste0(round(M_mean_sd$mean, 2), " (", 
+                      round(M_mean_sd$sd, 2), ")"),
+               2,2,
+               dimnames = list(sort(c("Ni","Vt")),sort(c("Ni","Vt"))))
+    M[upper.tri(M)] <- NA
+    diag(M) <- 1
+    df_mean_sd_D_obs = as.data.frame(M)
+    df_mean_sd_D_obs
+    write.csv(df_mean_sd_D_obs, 
+              paste0(chemin_save,"/mat_schoener_d_mean_sd_summer_median.csv"))
+    # Colloque Cohabitation #####
 
     D_mai <- applyD_Schoener_proba_pred(liste_usages = sort(c("Lk","Rp","Vt")), mois = c("mai"),
                                         space="GE")
@@ -669,7 +824,6 @@ schoenerD.stats <- function(fonction_applyschoener, chemin_save){
   if(fonction_applyschoener == "E_proba_filter"){
     saveMatrixSchoener(D_summer_med,"median")
     saveMatrixSchoener(D_summer_occ,"occupancy")
-
   }
 }
 
@@ -1053,9 +1207,13 @@ df.mois = data.frame(nom_mois = liste.mois, numero_mois = c("05","06","07","08",
 # Liste usages
 liste.usages = c("Ni","Lk","Co","Pa","Rp","Vt")
 
-type_donnees = "ACP_avec_ponderation"
+# type_donnees = "ACP_avec_ponderation"
+# algorithme = "glm"
+# fit = "2_axes"
+
+type_donnees = "brute"
 algorithme = "glm"
-fit = "2_axes"
+fit = "all_simple"
 
 ### Programme -------------------------------------
 
