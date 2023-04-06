@@ -17,7 +17,9 @@ library(RColorBrewer)
 ### Fonctions -------------------------------------
 
 # Compute overlap D schoener between 2 uses
-DSchoener <- function(i, j){1-(0.5*(sum(abs(i - j), na.rm=T)))}
+DSchoener <- function(i, j){(0.5*(sum(abs(i - j), na.rm=T)))}
+
+DSchoener_local <- function(i, j,n){ (1/n) -(0.5*(sum(abs(i - j), na.rm=T)))}
 
 # Fonction qui retourne un dataframe avec o_ij e_ij et z_ij pour un usage, pour un mois
 GridObs <- function(usage,  mois,
@@ -654,9 +656,9 @@ meansd4listMatrices <- function(liste.matrices, liste.usages){
 }
 
 schoenerD.stats <- function(fonction_applyschoener, chemin_save){
-  # TEST
-  fonction_applyschoener = "E_proba_filter" # "E_obs" "E_proba" "E_proba_filter
-  chemin_save = path_save
+  # # TEST
+  # fonction_applyschoener = "E_proba_filter" # "E_obs" "E_proba" "E_proba_filter
+  # chemin_save = path_save
   
   if(fonction_applyschoener == "G_proba"){
     
@@ -1187,12 +1189,175 @@ pInter_fCutOff <- function(mois, space){
   }
 }
 
+# fonction qui retourne une table coordonnées spatiales, valeurs env (dans l'espace désiré) et proba d'usages
+LinkProbaEnv <- function(mois,
+                         type_donnees = "brute",
+                         algorithme = "glm",
+                         fit = "all_simple"){
+  # TEST
+  mois = "mai"
+  
+  
+  df_time <- data.frame(mois = c("mai","juin","juillet","aout","septembre"),
+                        english_month = c("May","June","July","August","September")
+  )
+  english_month <- df_time$english_month[df_time$mois == mois]
+  path_save <- paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
+                      fit,"/",algorithme,"/")
+  
+  # Environmental space, for month studied
+  PCA1 <- stack(list.files(path=paste0(gitCaractMilieu,"/output/ACP/",liste.dim,"/summer/sans_ponderation/pred_month/",mois),
+             "axe1", full.names = T
+            ))
+  
+  PCA2 <- stack(list.files(path=paste0(gitCaractMilieu,"/output/ACP/",liste.dim,"/summer/sans_ponderation/pred_month/",mois),
+             "axe2", full.names = T
+  ))
+  PCA_stack <- stack(PCA1,PCA2)
+  df_env <- data.frame(data.table(PCA_stack[]))
+  df_env <- cbind(coordinates(PCA_stack),df_env)
+  # Predicted probabilities, for model studied
+  a <- paste0(output_path,"/niches/",type_donnees,"/",liste.usages, "/", fit,"/predictions_glm/")
+  a <- list.files(a,pattern= '.tif$', full.names = T)
+  a <- a[grep(mois,a)]
+  stack_us <- stack(a)
+  n <- nchar(mois) + nchar(fit)+  nchar(algorithme) + 33
+  uses <- str_sub(string = a, start=-n-1, end=-n)
+  names(stack_us) <- unlist(lapply(uses, function(x) paste0(x,c("_obs","_proba","_pred"))))
+  df_us <- data.frame(data.table(stack_us[]))
+  df_us <- cbind(coordinates(stack_us),df_us)
+  # Merge env + uses
+  df_env_us <- merge(df_env, df_us, by=c("x","y"))
+  write.csv(df_env_us,
+            paste0(path_save,"/dt_PCAdims_uses_",mois,".csv")
+            )
+
+  df_proba_us_plot <- df_env_us %>% pivot_longer(cols=ends_with("proba"),
+                                                      names_to = "Use", 
+                                                      values_to = "Proba")
+  supp.labs <- c("Nesting","Sheep Grazing","Hiking",
+                 "Lek","Sheep Night Camping" ,"Mountain Bike")
+  names(supp.labs) <- c("Ni_proba","Pa_proba","Rp_proba",
+                        "Lk_proba","Co_proba", "Vt_proba")
+  df_proba_us_plot_new <- df_proba_us_plot 
+  df_proba_us_plot_new$Use <- factor(df_proba_us_plot_new$Use,
+                                     levels = c("Ni_proba","Pa_proba","Rp_proba",
+                                                "Lk_proba","Co_proba", "Vt_proba"))
+  # Plot map (G space)
+  map <- na.omit(df_proba_us_plot_new) %>%
+    ggplot() +
+    geom_raster(aes(x = x, y = y, fill = Proba)) +
+    scale_fill_distiller(palette ="RdBu",direction=1) +
+    #theme_void() +
+    theme(panel.background = element_rect(fill="white"),
+          plot.background = element_rect(fill="white"),
+          panel.grid.major = element_line(colour="grey"),
+          legend.position = "right",
+          text = element_text(size=15),
+          axis.text.x = element_text(angle=45)) +
+    labs(fill="Probability of\noccurrence", title = english_month,
+         x="Longitude",y="Latitude")+
+    facet_wrap(.~Use,labeller = labeller(Use = supp.labs),drop=F)+
+    coord_equal()
+  png(file = paste0(path_save,"/overlap_metrics/G_space/proba/map_proba_G_",mois,".png"),width=1400, height=800)
+  plot(map)
+  dev.off()
+  
+  ### probabilities of occurrence, in PCA space, by dimension
+
+  # be able to facet by dimension and use
+  dfPCA1 <- df_env_us[,1:8]
+  dfPCA1 <- dfPCA1  %>% 
+    pivot_longer(cols=starts_with("axe1"),
+                 names_to = "dimension", 
+                 values_to = "PCA1") 
+  dfPCA1$dimension <- unlist(lapply(strsplit(dfPCA1$dimension,"_"), function(x) x[[2]]))
+  dfPCA2 <- df_env_us[,c(1,2,9:14)]
+  dfPCA2 <- dfPCA2  %>% 
+    pivot_longer(cols=starts_with("axe2"),
+                 names_to = "dimension", 
+                 values_to = "PCA2") 
+  dfPCA2$dimension <- unlist(lapply(strsplit(dfPCA2$dimension,"_"), function(x) x[[2]]))
+  dfPCA <-  merge(dfPCA1,dfPCA2, by=c("x","y","dimension"))
+  dfPCA_us <- merge(dfPCA, df_us, by=c("x","y"))
+  dfPCA_us <- dfPCA_us %>% pivot_longer(cols=ends_with("proba"),
+                                                 names_to = "Use", 
+                                                 values_to = "Proba")
+  dfPCA_us$Use <- factor(dfPCA_us$Use,
+                                     levels = c("Ni_proba","Pa_proba","Rp_proba",
+                                                "Lk_proba","Co_proba", "Vt_proba"))
+  # For 1 use, in all 6 dimensions, proba in E space
+  dfPCA_us %>%
+    filter(Use == "Lk_proba") %>%
+  ggplot() +
+    stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                     fun = function(x) median(x), bins=75,colour='grey')+
+    scale_fill_distiller(palette ="RdBu",na.value = "transparent",direction=1,
+                         limits=c(0,1)) +
+    geom_hline(yintercept = 0,linetype="dashed")+
+    geom_vline(xintercept = 0,linetype="dashed") +
+    facet_wrap(~dimension, scales = "free")+
+    labs(title = "Median Probability Grided",
+         fill = "Median probability\nof occurrence",
+         subtitle = english_month)
+  # For all uses, in all 6 dimensions, proba in E space
+  dfPCA_us %>%
+    ggplot() +
+    stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                     fun = function(x) median(x), bins=75,colour='grey')+
+    scale_fill_distiller(palette ="RdBu",na.value = "transparent",direction=1,
+                         limits=c(0,1)) +
+    geom_hline(yintercept = 0,linetype="dashed")+
+    geom_vline(xintercept = 0,linetype="dashed") +
+    facet_wrap(Use~dimension, scales = "free",ncol=6,nrow=3,labeller = labeller(Use = supp.labs))+
+    labs(title = "Median Probability Grided",
+         fill = "Median probability\nof occurrence",
+         subtitle = english_month)
+  
+  
+  # From 
+  # https://stackoverflow.com/questions/35924085/change-loadings-arrows-length-in-pca-plot-using-ggplot2-ggfortify
+  iris <- data.frame(iris)
+  PCA <- prcomp(iris[,1:4])
+  PCAvalues <- data.frame(Species = iris$Species, PCA$x)
+  PCAloadings <- data.frame(Variables = rownames(PCA$rotation), PCA$rotation)
+  # TODO : load PCA loadings
+  # TODO : savoir quelles variables est significative dans GLM pour faire apparaitre flèches
+  
+  # TODO : faire apparaître les flèches des variables
+    ggplot() +
+    stat_summary_hex(data=df_env_us, aes(x=axe1_B_mai, y=axe2_B_mai, z= Lk_proba),
+                     fun = function(x) median(x), bins=75,colour='grey')+
+    scale_fill_distiller(palette ="RdBu",na.value = "transparent",direction=1,
+                         limits=c(0,1))+
+    geom_segment(  aes(x = 0, y = 0, 
+                     xend =  PCAloadings$PC1*2,
+                      yend =  PCAloadings$PC2*2), 
+                 arrow = arrow(length = unit(1/2, "picas")),
+                 color = "black")+
+      annotate("text", x = (PCAloadings$PC1*2), y = (PCAloadings$PC2*2),
+               label = PCAloadings$Variables)
+    
+    
+
+
+
+  
+  
+  }
+
+lapply(liste.mois, function(x) LinkProbaEnv(mois=x))
+
+
+
+
 ### Constantes -------------------------------------
 
 # Espace de travail
 wd <- getwd()
 # Dossier des outputs (dans le git)
 output_path <- paste0(wd,"/output/")
+gitCaractMilieu <- "C:/Users/perle.charlot/Documents/PhD/DATA/R_git/CaractMilieu"
 input_path <- paste0(wd,"/input/")
 
 #### Données spatiales ####
@@ -1202,8 +1367,8 @@ limiteN2000 <- paste0(dos_var_sp, "/limites_etude/cembraie_N2000_limites.gpkg")
 #### Autre ####
 liste.mois = c("mai","juin","juillet","aout","septembre")
 df.mois = data.frame(nom_mois = liste.mois, numero_mois = c("05","06","07","08","09"))
-# # Liste dimensions
-# liste.dim =  c("CA","B","PV","CS","D","I")
+# Liste dimensions
+liste.dim =  c("CA","B","PV","CS","D","I")
 # Liste usages
 liste.usages = c("Ni","Lk","Co","Pa","Rp","Vt")
 
