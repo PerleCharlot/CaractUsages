@@ -2,11 +2,11 @@
 # Nom : Modélisation des usages
 # Auteure : Perle Charlot
 # Date de création : 09-09-2022
-# Dates de modification : 20-03-2023
+# Dates de modification : 07-04-2023
 
 ### Librairies -------------------------------------
-library(glmmfields)
-library(MASS)
+#library(glmmfields)
+#library(MASS)
 library(raster)
 library(data.table)
 library(sf)
@@ -16,11 +16,11 @@ library(pROC)
 library(MLmetrics)
 # library(corrplot)
 library(ggplot2)
-# library(dplyr)
+#library(dplyr)
 library(tidyverse)
 # library(fasterize)
-library(FactoMineR)
-library(factoextra)
+# library(FactoMineR)
+# library(factoextra)
 library(ggtext)
 library(glue)
 library(exactextractr)
@@ -223,7 +223,7 @@ ExtractData1Use <- function(usage,
 CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
   
   # #TEST
-  # nom_court_usage = "Rp"
+  # nom_court_usage = "Ni"
   # type_donnees = "brute"
   # ## "ACP_avec_ponderation" "ACP_sans_ponderation" "ACP_ACP" "brute"
   # fit = "all_simple" # "2_axes" or "all_simple"
@@ -441,6 +441,11 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
   set.seed(123)
   # GLM
   if(algorithme == "glm"){
+    
+    index <-  which(names(train2) %in% table_variables$Nom[which(table_variables$Nature == "qualitative")] )
+    train2[index] <- lapply(train2[index], factor)
+    str(train2)
+
     model.glm <- caret::train(formula.usage,
                               train2,
                               method = algorithme,
@@ -504,7 +509,7 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
   supp.labs <- c("Observed Presence", "Observed Absence")
   names(supp.labs) <- c("presence", "absence")
   # distribution of the prediction score grouped by known outcome
-  plot_proba = ggplot(tabl_pred, aes(predicted_probability, color = as.factor(prediction) ) ) + 
+  plot_proba <- ggplot(tabl_pred, aes(predicted_probability, color = as.factor(prediction) ) ) + 
     geom_density(size = 1) +
     xlim(0,1)+
     labs(color = "Prediction of", x = "Probability",
@@ -527,6 +532,10 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
   test2$usage <- fct_recode(test2$usage,
                             "presence" = "1",
                             "absence" = "0")
+  
+  index <-  which(names(test2) %in% table_variables$Nom[which(table_variables$Nature == "qualitative")] )
+  test2[index] <- lapply(test2[index], factor)
+  
   # Prédiction sur jeu test
   test2$prediction  <- predict(model.glm, newdata = test2 , type = "prob" )
   # fonction : variation accuracy =f(cutoff) +graphique de matrice de confusion
@@ -663,10 +672,10 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
   cat(paste0("Seuil probabilité à : ",proba_threshold,"\n"))
   
   # mise en forme data pour plots
-  ths2 = ths %>%
+  ths2 <- ths %>%
     pivot_longer(cols=-c(parameter, prob_threshold), names_to = "Measure")
   
-  plot_F1_J = ths2 %>%
+  plot_F1_J <- ths2 %>%
       filter(Measure == "Dist" | Measure == "F1" | Measure == "J" ) %>%
     ggplot(aes(x = prob_threshold,y=value ,color=Measure)) + 
     geom_point(size=4) + 
@@ -677,7 +686,7 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
     theme(text = element_text(size=24),
           axis.title.x = element_blank())
   
-  plot_spe_sens_acc = ths2 %>%
+  plot_spe_sens_acc <- ths2 %>%
       filter(Measure == "Balanced_Accuracy" | 
                Measure == "Sensitivity" | Measure == "Specificity") %>%
       ggplot(aes(x = prob_threshold,y=value ,color=Measure)) + 
@@ -707,7 +716,7 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
   write.csv(test2, paste0(output_path,"/niches/",type_donnees,
                           "/",nom_court_usage,"/",fit,"/dataset_test_",algorithme,".csv"))
   # Sauvegarde matrice de confusion au best cutoff
-  CM = confusionMatrix(test2$usage, test2$usage_predicted)
+  CM <- confusionMatrix(test2$usage, test2$usage_predicted)
   save(CM, file=paste0(output_path,"/niches/",type_donnees,
                        "/",nom_court_usage,"/",fit,"/CM_",algorithme,".rdata"))
 
@@ -756,8 +765,11 @@ CreateModelUsage <- function(nom_court_usage, type_donnees, fit,algorithme){
       
       df.env <- fread(paste0(input_path,"/vars_env/",type_donnees,"/",
                              mois,"/dt_vars.csv"),dec=",")
-      df.env2 = na.omit(df.env)
-
+      df.env2 <- as.data.frame(na.omit(df.env))
+      
+      index <-  which(names(df.env2) %in% table_variables$Nom[which(table_variables$Nature == "qualitative")] )
+      df.env2[index] <- lapply(df.env2[index], factor)
+      
       # Prediction
       prob_spatial <- predict(model.fit, df.env2, type="prob")
       prob_spatial$usage_predicted <- ifelse(prob_spatial$presence > proba_threshold, 1, 0)
@@ -1859,7 +1871,7 @@ dim_col = merge(dim_vars, corresp_col, by='dim',all=T)
 table_variables <- fread(path_table_variables, header=T)
 col_vars <- merge(corresp_col, table_variables, by.x="dim",by.y="Dimension")
 # formatage pour que cette table soit prise dans fonction RecodeFacto()
-col_vars_formate =  col_vars %>%  
+col_vars_formate <-  col_vars %>%  
   dplyr::select(Nom,Nature) %>%
   transmute(ID=Nom, nature=Nature)
 
@@ -1909,11 +1921,11 @@ lapply(liste.usages, function(x) CreateModelUsage(nom_court_usage=x,
                                                   type_donnees = "brute",
                                                   fit="all_simple",
                                                   algorithme ="glm"))
-
-CreateModelUsage(nom_court_usage="Pa",
-                 type_donnees = "brute",
-                 fit="all_simple",
-                 algorithme ="glm")
+# 
+# CreateModelUsage(nom_court_usage="Pa",
+#                  type_donnees = "brute",
+#                  fit="all_simple",
+#                  algorithme ="glm")
 
 # 3 - Visualisation des niches écologiques des usages
 # # pour un usage, sur tous les mois
