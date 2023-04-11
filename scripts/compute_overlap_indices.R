@@ -15,7 +15,969 @@ library(stringr)
 library(tidyverse)
 library(RColorBrewer)
 library(viridis)
+library(ggpubr)
 ### Fonctions -------------------------------------
+
+# Fonction principale pour calculer l'indice D de Schoener entre paires d'usages
+
+function(espace, sous_espace){
+  # TEST
+  espace = "E" # "E" ou "G"
+  sous_espace = "global" # "global" ou "dimensions"
+  # periode ?
+  #   usages ?
+  
+    
+  if(espace == "G"){
+    
+    # enregistrer les cartes spatialisées de probabilités
+    # enregistrer les matrices de D (entre usages) en csv
+    
+    # en mai : que 3 usages
+    D_mai <- applyD_Schoener_proba_pred(liste_usages = sort(c("Lk","Rp","Vt")), mois = c("mai"),space="G")
+    # en juin : tous les usages
+    D_juin <- applyD_Schoener_proba_pred(liste_usages = liste.usages, mois = c("juin"),space="G")
+    # de juillet à septembre : les 5 mêmes usages
+    D_jui_ao_sep <- lapply(c("juillet","aout","septembre"), function(x) 
+      applyD_Schoener_proba_pred(liste_usages = sort(c("Ni","Pa","Rp","Co","Vt")), mois = x,space="G"))
+    # Rassembler les matrices au cours de l'été
+    D_summer <- append(list(D_mai, D_juin), D_jui_ao_sep)
+    saveMatrixSchoener(D_summer,"_")
+    
+  }
+  if(espace == "E"){
+    if(sous_espace == "global"){
+      
+    }
+    if(sous_espace == "dimensions"){
+      
+    }
+  }
+  
+}
+
+GetGspaceTable <- function(mois,
+                           usages_etudies = NULL, #si on veut une sélection d'usages particulière, 
+                           # de base, la fonction fait pour tous les usages rencontrés le mois étudié
+                           type_donnees = "brute",
+                           fit = "all_simple",
+                           algorithme = "glm"){
+  # # TEST
+  # mois = "juillet"
+  # type_donnees = "brute"
+  # fit = "all_simple"
+  # algorithme = "glm"
+  # usages_etudies = NULL
+  
+  # Create directories
+  Gspace_path <- paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
+                                  fit,"/",algorithme,"/G_space/",mois,"/") 
+  if(!dir.exists(Gspace_path)){dir.create(Gspace_path)}
+  
+  # Translate french <-> english (for figures)
+  df_time <- data.frame(mois = c("mai","juin","juillet","aout","septembre"),
+                        english_month = c("May","June","July","August","September"))
+  english_month <- df_time$english_month[df_time$mois == mois]
+
+  # load raster of proba for month studied
+  list_rast <- base::list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
+                                pattern = ".tif$", 
+                                recursive = T, full.names = T)
+  # trier le mois
+  list_rast <- list_rast[grep(mois,list_rast)]
+  #trier les usages
+  if(!is.null(usages_etudies)){
+    list_rast <- list_rast[grep(paste(liste_usages, collapse="|"), list_rast)]}
+  # Load rasters
+  stack_uses <- raster::stack(list_rast[grep(mois,list_rast)])
+  # Récupérer les noms des usages présents au mois étudié + renommer stack
+  n <- nchar(mois) + nchar(fit)+  nchar(algorithme) + 33
+  uses_names <- str_sub(string = list_rast, start=-n-1, end=-n)
+  names(stack_uses) <- unlist(lapply(uses_names, function(x) paste0(x,c("_obs","_proba","_pred"))))
+  # conserve proba layer
+  stack_uses_proba <- stack_uses %>% subset(grep("proba", names(stack_uses)))
+  plot(stack_uses_proba)
+  # raster -> df
+  df_uses_proba <- data.frame(data.table(stack_uses_proba[]))
+  df_uses_proba <- cbind(coordinates(stack_uses_proba),df_uses_proba)
+  
+  # pivot
+  df_uses_proba <- df_uses_proba %>% pivot_longer(cols=ends_with("proba"),
+                                                      names_to = "Use", 
+                                                      values_to = "Proba")
+  # Nice names for plots
+  uses.labs <- c("Nesting","Sheep Grazing","Hiking",
+                 "Lek","Sheep Night Camping" ,"Mountain Bike")
+  names(uses.labs) <- c("Ni_proba","Pa_proba","Rp_proba",
+                        "Lk_proba","Co_proba", "Vt_proba")
+  # Reordering group factor levels
+  df_uses_proba$Use <- factor(df_uses_proba$Use,      
+                                     levels = c("Ni_proba","Pa_proba","Rp_proba",
+                                                "Lk_proba","Co_proba", "Vt_proba"))
+  # Plot map (G space)
+  map <- na.omit(df_uses_proba) %>%
+    ggplot() +
+    geom_raster(aes(x = x, y = y, fill = Proba)) +
+    scale_fill_viridis(limits=c(0,1)) +
+    theme(panel.background = element_rect(fill="white"),
+          plot.background = element_rect(fill="white"),
+          panel.grid.major = element_line(colour="grey"),
+          legend.position = "right",
+          text = element_text(size=15),
+          axis.text.x = element_text(angle=45)) +
+    labs(fill="Probability of\noccurrence", title = english_month,
+         x="Longitude",y="Latitude")+
+    facet_wrap(.~Use,labeller = labeller(Use = uses.labs),drop=F)+
+    coord_equal()
+  # si nécessaire, ne garder que certains usages sur les cartes
+  if(!is.null(usages_etudies)){
+    map <- na.omit(df_uses_proba) %>%
+      ggplot() +
+      geom_raster(aes(x = x, y = y, fill = Proba)) +
+      scale_fill_viridis(limits=c(0,1)) +
+      theme(panel.background = element_rect(fill="white"),
+            plot.background = element_rect(fill="white"),
+            panel.grid.major = element_line(colour="grey"),
+            legend.position = "right",
+            text = element_text(size=15),
+            axis.text.x = element_text(angle=45)) +
+      labs(fill="Probability of\noccurrence", title = english_month,
+           x="Longitude",y="Latitude")+
+      facet_wrap(.~Use,labeller = labeller(Use = uses.labs),drop=T)+
+      coord_equal()
+    }
+  #save plot
+  png(file = paste0(Gspace_path,"/map_proba_uses.png"),width=1400, height=800)
+  plot(map)
+  dev.off()
+  # save df
+  df_uses_proba$Month <- english_month
+  # make different name if not on all uses
+  df_name <- paste0("/df_coords_proba_uses",paste0(usages_etudies,collapse="_"),".csv")
+  write.csv(df_uses_proba, paste0(Gspace_path,df_name))
+
+  return(df_uses_proba)
+}
+
+GetEspaceTableGlob <- function(mois,
+                               usages_etudies = NULL, #si on veut une sélection d'usages particulière, 
+                               # de base, la fonction fait pour tous les usages rencontrés le mois étudié
+                               type_donnees = "brute",
+                               fit = "all_simple",
+                               algorithme = "glm"){
+  # # TEST
+  # mois = "juillet"
+  # type_donnees = "brute"
+  # fit = "all_simple"
+  # algorithme = "glm"
+  # usages_etudies = NULL
+  
+  # Create directories
+  Espace_glob_path <- paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
+                        fit,"/",algorithme,"/E_space/global/",mois,"/") 
+  if(!dir.exists(Espace_glob_path)){dir.create(Espace_glob_path, recursive = T)}
+  
+  # Translate french <-> english (for figures)
+  df_time <- data.frame(mois = c("mai","juin","juillet","aout","septembre"),
+                        english_month = c("May","June","July","August","September"))
+  english_month <- df_time$english_month[df_time$mois == mois]
+  # Get PCA axes from global analysis
+  PCA1 <- stack(list.files(path=paste0(gitCaractMilieu,"/output/ACP/ACP_avec_ponderation/summer/pred_month/",mois),
+                           "axe1", full.names = T))
+  
+  PCA2 <- stack(list.files(path=paste0(gitCaractMilieu,"/output/ACP/ACP_avec_ponderation/summer/pred_month/",mois),
+                           "axe2", full.names = T))
+  PCA_stack <- stack(PCA1,PCA2)
+  names(PCA_stack) <- c("PCA1","PCA2")
+  plot(PCA_stack)
+  df_env <- data.frame(data.table(PCA_stack[]))
+  df_env <- cbind(coordinates(PCA_stack),df_env)
+  # Plot map (G space)
+  df_env2 <- df_env %>% 
+    pivot_longer(cols=starts_with("PCA"),values_to = "PCA_value" , names_to = "PCA_axe")
+  map <- na.omit(df_env2) %>%
+    ggplot() +
+    geom_raster(aes(x = x, y = y, fill = PCA_value)) +
+    # scale_fill_viridis(limits=c(0,1)) +
+    scale_fill_distiller(palette ="Spectral",direction=1)+
+    theme(panel.background = element_rect(fill="white"),
+          plot.background = element_rect(fill="white"),
+          panel.grid.major = element_line(colour="grey"),
+          legend.position = "right",
+          text = element_text(size=15),
+          axis.text.x = element_text(angle=45)) +
+    labs(fill="PCA value", title = english_month,
+         x="Longitude",y="Latitude")+
+    facet_wrap(.~PCA_axe)+
+    coord_equal()
+  #save plot
+  png(file = paste0(Espace_glob_path,"/map_PCA_axes.png"),width=1400, height=800)
+  plot(map)
+  dev.off()
+  # save df
+  df_env$Month <- english_month
+  # make different name if not on all uses
+  df_name <- "/df_coords_PCA_axes.csv"
+  write.csv(df_env, paste0(Espace_glob_path,df_name))
+  
+  # df_env2$Month <- english_month
+  # df_env2$dimension <- "global"
+  
+  return(df_env)
+}
+
+GetEspaceTableDim <- function(mois,
+                               usages_etudies = NULL, #si on veut une sélection d'usages particulière, 
+                               # de base, la fonction fait pour tous les usages rencontrés le mois étudié
+                               type_donnees = "brute",
+                               fit = "all_simple",
+                               algorithme = "glm"){
+  # # TEST
+  # mois = "juillet"
+  # type_donnees = "brute"
+  # fit = "all_simple"
+  # algorithme = "glm"
+  # usages_etudies = NULL
+  
+  # Create directories
+  Espace_dim_path <- paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
+                             fit,"/",algorithme,"/E_space/dimensions/",mois,"/") 
+  if(!dir.exists(Espace_dim_path)){dir.create(Espace_dim_path, recursive = T)}
+  # English names
+  labs.env <- c("Biomass","Abiotic Conditions","Spatial Context",
+                "Dynamic","Infrastructure" ,"Vegetation Physionomy")
+  names(labs.env) <- c("B","CA","CS",
+                       "D","I", "PV")
+  
+  # Translate french <-> english (for figures)
+  df_time <- data.frame(mois = c("mai","juin","juillet","aout","septembre"),
+                        english_month = c("May","June","July","August","September"))
+  english_month <- df_time$english_month[df_time$mois == mois]
+  # Environmental space, for month studied
+  PCA1 <- stack(list.files(path=paste0(gitCaractMilieu,"/output/ACP/",liste.dim,"/summer/sans_ponderation/pred_month/",mois),
+                           "axe1", full.names = T
+  ))
+  
+  PCA2 <- stack(list.files(path=paste0(gitCaractMilieu,"/output/ACP/",liste.dim,"/summer/sans_ponderation/pred_month/",mois),
+                           "axe2", full.names = T
+  ))
+  PCA_stack <- stack(PCA1,PCA2)
+  names(PCA_stack) <- gsub(x = names(PCA_stack),pattern = paste0("_",mois),replacement = "")
+  plot(PCA_stack)
+  df_env <- data.frame(data.table(PCA_stack[]))
+  df_env <- cbind(coordinates(PCA_stack),df_env)
+  
+  # Data arrangemnt
+  number_dimensions <- dim(PCA1)[3]
+  dfPCA1 <- df_env[,1: (number_dimensions+2) ]
+  dfPCA1 <- dfPCA1  %>% 
+    pivot_longer(cols=starts_with("axe1"),
+                 names_to = "dimension", 
+                 values_to = "PCA1") 
+  dfPCA1$dimension <- unlist(lapply(strsplit(dfPCA1$dimension,"_"), function(x) x[[2]]))
+  dfPCA2 <- df_env[,c(1,2,(number_dimensions+3):dim(df_env)[2])]
+  dfPCA2 <- dfPCA2  %>% 
+    pivot_longer(cols=starts_with("axe2"),
+                 names_to = "dimension", 
+                 values_to = "PCA2") 
+  dfPCA2$dimension <- unlist(lapply(strsplit(dfPCA2$dimension,"_"), function(x) x[[2]]))
+  dfPCA <-  merge(dfPCA1,dfPCA2, by=c("x","y","dimension"))
+
+  dfPCA2 <- dfPCA %>% 
+    pivot_longer(cols=starts_with("PCA"),values_to = "PCA_value" , names_to = "PCA_axe")
+  
+  # Plot map (G space)
+  f <- function(dim_i){
+    map <- na.omit(dfPCA2) %>%
+      filter(dimension == dim_i)%>%
+      ggplot() +
+      geom_raster(aes(x = x, y = y, fill = PCA_value)) +
+      scale_fill_distiller(palette ="Spectral",direction=1)+
+      theme(panel.background = element_rect(fill="white"),
+            plot.background = element_rect(fill="white"),
+            panel.grid.major = element_line(colour="grey"),
+            legend.position = "right",
+            text = element_text(size=15),
+            axis.text.x = element_text(angle=45)) +
+      labs(fill="PCA value", title = english_month,
+           x="Longitude",y="Latitude")+
+      facet_grid(dimension~PCA_axe, labeller = labeller(dimension = labs.env))+
+      coord_equal()
+    #save plot
+    png(file = paste0(Espace_dim_path,"/map_PCA_axes_dim_",dim_i,".png"),width=1400, height=800)
+    plot(map)
+    dev.off()
+    return(map)
+  }
+  list_map <- lapply(unique(dfPCA2$dimension),f)
+  
+  P <- list_map[[1]]+list_map[[2]]+list_map[[3]]+list_map[[4]]+list_map[[5]]+list_map[[6]]+
+    plot_layout(ncol=2,nrow=3)
+  png(file = paste0(Espace_dim_path,"/map_PCA_axes_dim.png"),width=1400, height=800)
+  plot(P)
+  dev.off()
+  
+  # save df
+  dfPCA$Month <- english_month
+  df_name <- "/df_coords_PCA_axes_dim.csv"
+  write.csv(dfPCA, paste0(Espace_dim_path,df_name))
+  
+  # dfPCA2$Month <- english_month
+  return(dfPCA)
+  
+  # dfPCA1,dfPCA2 ?
+  
+}
+
+function(){
+  # TEST
+  
+  # Apply across months
+  df_proba_uses <- lapply(liste.mois, function(x) GetGspaceTable(mois=x))
+  df_proba_uses2 <-as.data.frame(do.call(rbind,df_proba_uses))
+  supp.labs <- c("Nesting","Sheep Grazing","Hiking",
+                 "Lek","Sheep Night Camping" ,"Mountain Bike")
+  names(supp.labs) <- c("Ni_proba","Pa_proba","Rp_proba",
+                        "Lk_proba","Co_proba", "Vt_proba")
+  
+  ### E space : global ####
+  df_PCA_glob <- as.data.frame(do.call(rbind,lapply(liste.mois, function(x) GetEspaceTableGlob(mois=x))))
+  df_proba_PCA_glob <- merge(df_proba_uses2,df_PCA_glob, by=c("x","y","Month"))
+  
+  df_proba_PCA_glob$Month <- factor(df_proba_PCA_glob$Month,      
+                              levels = c("May","June","July",
+                                         "August","September"))
+  # For all uses, across months
+  P_all_U_M <- df_proba_PCA_glob %>%
+    ggplot() +
+    stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                     fun = function(x) median(x), bins=25,colour='grey')+
+    scale_fill_viridis(na.value = "transparent",
+                       limits=c(0,1)) +
+    geom_hline(yintercept = 0,linetype="dashed")+
+    geom_vline(xintercept = 0,linetype="dashed") +
+    facet_grid(Month ~ Use, scales = "free",labeller = labeller(Use = uses.labs))+
+    labs(title = "Probability of Occurrence projected in Ecological Space",
+         fill = "Median probability\nof occurrence")+
+    theme(text = element_text(size=18))
+  # super plot pour visualier les tendances
+  # - paturage : varie bcp au cours des mois par rap aux autres
+  # - sur quels mois on a quels usages
+  png(file = paste0(dirname(Espace_glob_path),"/proba_E_space_across_months_uses.png"),
+      width=2100, height=1200)
+  plot(P_all_U_M )
+  dev.off()
+  # More detailes plots
+  # For 1 month, across uses
+  for(month_i in unique(df_proba_PCA_glob$Month)){
+    P_all_U <- df_proba_PCA_glob %>%
+      filter(Month == month_i) %>%
+      ggplot() +
+      stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                       fun = function(x) median(x), bins=50,colour='grey')+
+      scale_fill_viridis(na.value = "transparent",
+                         limits=c(0,1)) +
+      geom_hline(yintercept = 0,linetype="dashed")+
+      geom_vline(xintercept = 0,linetype="dashed") +
+      facet_wrap( ~ Use , scales = "free",ncol=3,nrow=2,drop=F,
+                  labeller = labeller(Use = uses.labs))+
+      labs(title = month_i,
+           fill = "Median probability\nof occurrence")+
+      theme(text = element_text(size=18))
+    
+    png(file = paste0(dirname(Espace_glob_path),"/",
+                      df_time$mois[df_time$english_month == month_i],
+                      "/proba_E_space_across_uses.png"),
+        width=2100, height=1200)
+    plot(P_all_U)
+    dev.off()
+  }
+  # For 1 use, across months
+  for(use_i in unique(df_proba_PCA_glob$Use)){
+    P_all_M <- df_proba_PCA_glob %>%
+      filter(Use == use_i) %>%
+      ggplot() +
+      stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                       fun = function(x) median(x), bins=50,colour='grey')+
+      scale_fill_viridis(na.value = "transparent",
+                         limits=c(0,1)) +
+      geom_hline(yintercept = 0,linetype="dashed")+
+      geom_vline(xintercept = 0,linetype="dashed") +
+      facet_wrap( ~ Month , scales = "free",drop=F)+
+      labs(title = uses.labs[names(uses.labs) %in% use_i],
+           fill = "Median probability\nof occurrence")+
+      theme(text = element_text(size=18))
+    
+    png(file = paste0(dirname(Espace_glob_path),"/",
+                      use_i,
+                      "_E_space_across_months.png"),
+        width=2100, height=1200)
+    plot(P_all_M)
+    dev.off()
+  }
+  ####
+  
+  ### E space : dimension ####
+  df_PCA_dim <- as.data.frame(do.call(rbind,lapply(liste.mois, function(x) GetEspaceTableDim(mois=x))))
+  df_proba_PCA_dim <- merge(df_proba_uses2,df_PCA_dim, by=c("x","y","Month"))
+  df_proba_PCA_dim$Month <- factor(df_proba_PCA_dim$Month,      
+                                   levels = c("May","June","July",
+                                              "August","September"))
+  for(month_i in unique(df_proba_PCA_dim$Month)){
+    # For all uses
+    P_all_U <- df_proba_PCA_dim %>%
+      filter(Month == month_i) %>%
+      ggplot() +
+      stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                       fun = function(x) median(x), bins=50,colour='grey')+
+      scale_fill_viridis(na.value = "transparent",
+                         limits=c(0,1)) +
+      geom_hline(yintercept = 0,linetype="dashed")+
+      geom_vline(xintercept = 0,linetype="dashed") +
+      facet_grid(Use ~ dimension , scales = "free",
+                 labeller = labeller(Use = uses.labs, dimension = labs.env))+
+      labs(title = month_i,
+           fill = "Median probability\nof occurrence")+
+      theme(text = element_text(size=18))
+    
+    png(file = paste0(dirname(Espace_dim_path),"/",
+                      df_time$mois[df_time$english_month == month_i],
+                      "/proba_E_space_across_uses.png"),
+        width=2100, height=1200)
+    plot(P_all_U)
+    dev.off()
+    
+    # By use
+    for(use_i in unique(df_proba_PCA_dim$Use)){
+      # month_i = "aout"
+      # use_i = "Lk_proba"
+      
+      P_all_M <- df_proba_PCA_dim %>%
+        filter(Month == month_i, Use == use_i) %>%
+        ggplot() +
+        stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                         fun = function(x) median(x), bins=50,colour='grey')+
+        scale_fill_viridis(na.value = "transparent",
+                           limits=c(0,1)) +
+        geom_hline(yintercept = 0,linetype="dashed")+
+        geom_vline(xintercept = 0,linetype="dashed") +
+        facet_wrap( ~ dimension , scales = "free",
+                    labeller = labeller(dimension = labs.env))+
+        labs(title = uses.labs[names(uses.labs) %in% use_i],
+             fill = "Median probability\nof occurrence")+
+        theme(text = element_text(size=18))
+      
+      path <- paste0(dirname(Espace_dim_path),"/",
+                            df_time$mois[df_time$english_month == month_i],
+                     "/by_use") 
+      if(!dir.exists(path)){dir.create(path)}
+      
+      if(dim(P_all_M$data)[1] != 0){
+        png(file = paste0(path,
+                          "/",use_i,
+                          "_E_space.png"),
+            width=2100, height=1200)
+        plot(P_all_M)
+        dev.off()
+        
+        
+        
+        # TODO : add significatives variables on dimensions plots
+        
+        
+        
+        
+        
+        
+        
+      }
+    }
+  }
+  # for 1 use, across time (in all dimensions)
+  for(use_i in unique(df_proba_PCA_dim$Use)){
+    
+    P_all_M <- df_proba_PCA_dim %>%
+      filter(Use == use_i) %>%
+      ggplot() +
+      stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                       fun = function(x) median(x), bins=50,colour='grey')+
+      scale_fill_viridis(na.value = "transparent",
+                         limits=c(0,1)) +
+      geom_hline(yintercept = 0,linetype="dashed")+
+      geom_vline(xintercept = 0,linetype="dashed") +
+      facet_grid( Month ~ dimension , scales = "free",drop=F,
+                  labeller = labeller(dimension = labs.env))+
+      labs(title = uses.labs[names(uses.labs) %in% use_i],
+           fill = "Median probability\nof occurrence")+
+      theme(text = element_text(size=18))
+    png(file = paste0(dirname(Espace_dim_path),
+                      "/",use_i,
+                      "_E_space_across_M.png"),
+        width=2100, height=1200)
+    plot(P_all_M)
+    dev.off()
+  }
+    
+    
+  
+  
+  ####
+  
+  # global & dims plots
+  # TODO : tester
+  # pê pb avec usage non présent au mois donné
+  for(month_i in unique(df_proba_PCA_dim$Month)){
+    for(use_i in unique(df_proba_PCA_dim$Use)){
+      
+      P_glob <- df_proba_PCA_glob %>%
+        filter(Use == use_i, Month == month_i) %>%
+        ggplot() +
+        stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                         fun = function(x) median(x), bins=50,colour='grey')+
+        scale_fill_viridis(na.value = "transparent",
+                           limits=c(0,1)) +
+        geom_hline(yintercept = 0,linetype="dashed")+
+        geom_vline(xintercept = 0,linetype="dashed") +
+        #facet_wrap( ~ Month , scales = "free",drop=F)+
+        labs(title = "Summarized Environmental Space")+
+        theme(text = element_text(size=18),
+              legend.position = "none")
+      
+      p_legend <- as_ggplot(get_legend(df_proba_PCA_glob %>%
+                                         filter(Use == use_i, Month == month_i) %>%
+                                         ggplot() +
+                                         stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                                                          fun = function(x) median(x), bins=50,colour='grey')+
+                                         scale_fill_viridis(na.value = "transparent",
+                                                            limits=c(0,1)) +
+                                         geom_hline(yintercept = 0,linetype="dashed")+
+                                         geom_vline(xintercept = 0,linetype="dashed") +
+                                         #facet_wrap( ~ Month , scales = "free",drop=F)+
+                                         labs(title = uses.labs[names(uses.labs) %in% use_i],
+                                              fill = "Median probability\nof occurrence")+
+                                         theme(text = element_text(size=18))))
+      
+      P_dim <- df_proba_PCA_dim %>%
+        filter(Use == use_i, Month == month_i) %>%
+        ggplot() +
+        stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                         fun = function(x) median(x), bins=25,colour='grey')+
+        scale_fill_viridis(na.value = "transparent",
+                           limits=c(0,1)) +
+        geom_hline(yintercept = 0,linetype="dashed")+
+        geom_vline(xintercept = 0,linetype="dashed") +
+        facet_wrap(~ dimension , scales = "free",drop=F,
+                   labeller = labeller(dimension = labs.env))+
+        labs(title ="Dimensions of Environmental Space")+
+        theme(text = element_text(size=18),
+              legend.position = "none")
+      
+      
+      # P_dim avec vars signifs only
+      # Fonction qui pour un usage, visualise les variables significatives
+      # dans chaque dimension ou dans l'espace ACP globale
+      VisuVarSignifDimsfor1Use <- function(use_i, 
+                                           df, 
+                                           month_i, 
+                                           type_espace){ # i représente une dimension
+        # # TEST
+        # df = df_proba_PCA_glob
+        # use_i = unique(df_proba_PCA_dim$Use)[1]
+        # month_i = "June"
+        # type_espace = "ACP_globale"
+
+        # ind_save <- grep(use_i,path_use_i)
+        
+        # name_use <- str_sub(use_i,1,-7)
+        # 
+        # cat(paste0(uses.labs[names(uses.labs) %in% use_i]," computing - "))
+        # 
+        # # SDM data
+        # load(paste0(output_path,"/niches/",type_donnees,"/",name_use,"/",
+        #             fit,"/modele_",algorithme,".rdata"))
+        # tbl_var_model <- as.data.frame(summary(model.fit)$coeff)
+        # tbl_var_model$Variable <- rownames(tbl_var_model)
+        # 
+        # # Plot : significant variable for use_i in red
+        # coef_multi <- 1
+        # c <- 1.1
+        
+        # Extract all PCA data and rbind
+        GetSignifVarbyDim <- function(dim_i,
+                                      type_espace,
+                                      df){ # i varie de 1 à 6, le nb de dimensions
+          # # TEST
+          # dim_i = NULL
+          # type_espace = type_espace
+          # df = df
+
+          
+          if(type_espace == "dimension") {
+            
+            # Dimension
+            # dim_i <- sort(liste.dim)[i]
+            dim_i <- as.character(dim_i)
+            cat(paste0(" - ",labs.env[names(labs.env) %in% dim_i]))
+            
+            
+            # PCA data
+            a <- list.files(path=paste0(gitCaractMilieu,"/output/ACP/",dim_i,"/summer/sans_ponderation/"),
+                            ".rdata", full.names = T)
+            load(a) # load PCA 
+            PCAloadings <- data.frame(Variable = rownames(res.pca$var$coord), res.pca$var$coord)
+            
+            # ne garder que les variables appartenant à la dim_i
+            tbl_var_model_dim <- tbl_var_model[tbl_var_model$Variable %in% col_dim$Nom[col_dim$Dimension == dim_i],]
+            
+            # couleur significative variables
+            tbl_var_model_dim$plot_colour <- ifelse(tbl_var_model_dim$`Pr(>|z|)` < 0.001,"red","black")
+            tbl_var_model_dim$dimension <- dim_i
+            
+            PCAloadings_2 <- merge(tbl_var_model_dim, PCAloadings, by="Variable")
+            
+            # Affiche les variables significatives (rouge) et les autres (noir)
+            x <- labs.vars[names(labs.vars) %in% PCAloadings_2$Variable]
+            x <- x[sort(names(x))]
+            
+            P2 <- df %>%
+              filter(dimension == dim_i) %>%
+              filter(Use == use_i) %>%
+              filter(Month == month_i) %>%
+              ggplot() +
+              stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                               fun = function(x) median(x), bins=50,colour='grey') +
+              scale_fill_viridis(na.value = "transparent",
+                                 limits=c(0,1), alpha=0.7)+
+              geom_segment(inherit.aes = F,
+                           data= PCAloadings_2 ,
+                           aes(x = 0, y = 0,
+                               xend =  Dim.1 *coef_multi,
+                               yend =  Dim.2 *coef_multi),
+                           colour = ifelse(PCAloadings_2$plot_colour == "red","red4","black"),
+                           arrow = arrow(length = unit(1/2, "picas")),
+                           size=1.5) +
+              annotate("text", x = (PCAloadings_2$Dim.1* c), y = (PCAloadings_2$Dim.2*c),
+                       label = x,
+                       size=ifelse(PCAloadings_2$plot_colour == "red",8,7),
+                       colour = ifelse(PCAloadings_2$plot_colour == "red","red","black")) +
+              geom_hline(yintercept = 0,linetype="dashed")+
+              geom_vline(xintercept = 0,linetype="dashed") +
+              theme(text = element_text(size=15)) +
+              labs(title = paste0(uses.labs[which(names(uses.labs) == use_i)]," - ",
+                                  labs.env[which(names(labs.env) == dim_i)]),
+                   fill = "Median probability\nof occurrence",
+                   subtitle = month_i)
+            P2
+            nom_P2 <- paste0("/",use_i,"_dim_",dim_i,"_varsignifs.png")
+            
+            # N'affiche que les variables significatives
+            PCAloadings2 <- PCAloadings_2 %>%
+              filter(plot_colour == "red")
+            x2 <- labs.vars[names(labs.vars) %in% PCAloadings2$Variable]
+            x2 <- x2[sort(names(x2))]
+            
+            P2bis <- df %>%
+              filter(dimension == dim_i) %>%
+              filter(Use == use_i) %>%
+              filter(Month == month_i) %>%
+              ggplot() +
+              stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                               fun = function(x) median(x), bins=50,colour='grey') +
+              scale_fill_viridis(na.value = "transparent",
+                                 limits=c(0,1), alpha=0.7)+
+              geom_segment(inherit.aes = F,
+                           data= PCAloadings2 ,
+                           aes(x = 0, y = 0,
+                               xend =  Dim.1 *coef_multi,
+                               yend =  Dim.2 *coef_multi),
+                           #colour = ifelse(PCAloadings$plot_colour == "red","red4","black"),
+                           arrow = arrow(length = unit(1/2, "picas")),
+                           size=1.5) +
+              annotate("text", x = (PCAloadings2$Dim.1* c), y = (PCAloadings2$Dim.2*c),
+                       label = x2,
+                       size=8) +
+              #colour = ifelse(PCAloadings$plot_colour == "red","red","black")) +
+              geom_hline(yintercept = 0,linetype="dashed")+
+              geom_vline(xintercept = 0,linetype="dashed") +
+              theme(text = element_text(size=15),
+                    #legend.position = "none"
+              ) +
+              labs(title = paste0(labs.env[which(names(labs.env) == dim_i)]),
+                   fill = "Median probability\nof occurrence")
+            P2bis
+            
+            nom_P2bis <- paste0("/",use_i,"_dim_",dim_i,"_varsignifs_only.png")
+            
+            PCA_vars <- PCAloadings_2[,1:9]
+          }
+          if(type_espace == "ACP_globale"){
+            # PCA data
+            a <- list.files(path=paste0(gitCaractMilieu,"/output/ACP/ACP_avec_ponderation/summer/"),
+                            ".rdata", full.names = T)
+            load(a) # load PCA 
+            PCAloadings <- data.frame(Variable = rownames(res.pca$var$coord), res.pca$var$coord)
+            tbl_var_model_dim <- tbl_var_model
+            tbl_var_model_dim$plot_colour <- ifelse(tbl_var_model_dim$`Pr(>|z|)` < 0.001,"red","black")
+            PCAloadings_2 <- merge(tbl_var_model_dim, PCAloadings, by="Variable")
+            
+            # Affiche les variables significatives (rouge) et les autres (noir)
+            x <- labs.vars[names(labs.vars) %in% PCAloadings_2$Variable]
+            x <- x[sort(names(x))]
+            
+            P2 <- df %>%
+              filter(Use == use_i, Month == month_i) %>%
+              ggplot() +
+              stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                               fun = function(x) median(x), bins=50,colour='grey') +
+              scale_fill_viridis(na.value = "transparent",
+                                 limits=c(0,1), alpha=0.7)+
+              geom_segment(inherit.aes = F,
+                           data= PCAloadings_2 ,
+                           aes(x = 0, y = 0,
+                               xend =  Dim.1 *coef_multi,
+                               yend =  Dim.2 *coef_multi),
+                           colour = ifelse(PCAloadings_2$plot_colour == "red","red4","black"),
+                           arrow = arrow(length = unit(1/2, "picas")),
+                           size=1.5) +
+              annotate("text", x = (PCAloadings_2$Dim.1* c), y = (PCAloadings_2$Dim.2*c),
+                       label = x,
+                       size=ifelse(PCAloadings_2$plot_colour == "red",8,7),
+                       colour = ifelse(PCAloadings_2$plot_colour == "red","red","black")) +
+              geom_hline(yintercept = 0,linetype="dashed")+
+              geom_vline(xintercept = 0,linetype="dashed") +
+              theme(text = element_text(size=15)) +
+              labs(title = paste0(uses.labs[which(names(uses.labs) == use_i)]),
+                   fill = "Median probability\nof occurrence",
+                   subtitle = english_month)
+
+            nom_P2 <- paste0("/",use_i,"_varsignifs_glob.png")
+            
+            # N'affiche que les variables significatives
+            PCAloadings2 <- PCAloadings_2 %>%
+              filter(plot_colour == "red")
+            x2 <- labs.vars[names(labs.vars) %in% PCAloadings2$Variable]
+            x2 <- x2[sort(names(x2))]
+            
+            P2bis <- df %>%
+              filter(Use == use_i, Month == month_i) %>%
+              ggplot() +
+              stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                               fun = function(x) median(x), bins=50,colour='grey') +
+              scale_fill_viridis(na.value = "transparent",
+                                 limits=c(0,1), alpha=0.7)+
+              geom_segment(inherit.aes = F,
+                           data= PCAloadings2 ,
+                           aes(x = 0, y = 0,
+                               xend =  Dim.1 *coef_multi,
+                               yend =  Dim.2 *coef_multi),
+                           #colour = ifelse(PCAloadings$plot_colour == "red","red4","black"),
+                           arrow = arrow(length = unit(1/2, "picas")),
+                           size=1.5) +
+              annotate("text", x = (PCAloadings2$Dim.1* c), y = (PCAloadings2$Dim.2*c),
+                       label = x2,
+                       size=8) +
+              #colour = ifelse(PCAloadings$plot_colour == "red","red","black")) +
+              geom_hline(yintercept = 0,linetype="dashed")+
+              geom_vline(xintercept = 0,linetype="dashed") +
+              theme(text = element_text(size=15)) +
+              labs(fill = "Median probability\nof occurrence")
+
+            nom_P2bis <- paste0("/",use_i,"_varsignifs_only_glob.png")
+            
+            PCA_vars <- PCAloadings_2[,1:8]
+          }
+          # Save plots
+          png(file = paste0(dirname(Espace_dim_path),"/",
+                            df_time$mois[df_time$english_month == month_i],
+                            "/by_use/",
+                            nom_P2),
+              width=2100, height=1200)
+          plot(P2)
+          dev.off()
+          png(file =  paste0(dirname(Espace_dim_path),"/",
+                                df_time$mois[df_time$english_month == month_i],
+                                "/by_use/",
+                                nom_P2bis),
+              width=2100, height=1200)
+          plot(P2bis)
+          dev.off()
+          
+          return(PCA_vars)
+        }
+        
+        # Calcule, pour un mois donné et un usage donné, les vars signif dans chaque dimension
+        if(type_espace == "dimension"){
+          arg <- liste.dim
+        }
+        if(type_espace == "ACP_globale"){
+          arg <- "onsenfout"
+        }
+        var_signi_dims <- do.call(rbind,lapply(arg,
+                                               function(x) GetSignifVarbyDim(dim_i=x,
+                                                                             df = df ,
+                                                                             type_espace=type_espace))) 
+        
+        var_signi_dims2 <- var_signi_dims %>%
+          filter(plot_colour == "red")
+
+        return(var_signi_dims2)
+      }
+      
+      name_use <- str_sub(use_i,1,-7)
+      cat(paste0(uses.labs[names(uses.labs) %in% use_i]," computing - "))
+      
+      # SDM data
+      load(paste0(output_path,"/niches/",type_donnees,"/",name_use,"/",
+                  fit,"/modele_",algorithme,".rdata"))
+      tbl_var_model <- as.data.frame(summary(model.fit)$coeff)
+      tbl_var_model$Variable <- rownames(tbl_var_model)
+      
+      # Plot : significant variable for use_i in red
+      coef_multi <- 1
+      c <- 1.1
+      
+      var_signif_dim <- VisuVarSignifDimsfor1Use(use_i=use_i, 
+                                                  df=df_proba_PCA_dim, 
+                                                  month_i=month_i,
+                                                 type_espace = "dimension")
+
+      var_signif_glob <- VisuVarSignifDimsfor1Use(use_i=use_i, 
+                                             df=df_proba_PCA_glob, 
+                                             month_i=month_i,
+                                             type_espace = "ACP_globale")
+
+      P_glob_vars <- df_proba_PCA_glob %>%
+        filter(Use == use_i, Month == month_i) %>%
+        ggplot() +
+        stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                         fun = function(x) median(x), bins=50,colour='grey')+
+        scale_fill_viridis(na.value = "transparent",
+                           limits=c(0,1), alpha=0.7) +
+        geom_segment(inherit.aes = F,
+                     data= var_signif_glob ,
+                     aes(x = 0, y = 0,
+                         xend =  Dim.1 *coef_multi,
+                         yend =  Dim.2 *coef_multi),
+                     arrow = arrow(length = unit(1/2, "picas")),
+                     size=1.5)+
+        geom_hline(yintercept = 0,linetype="dashed")+
+        geom_vline(xintercept = 0,linetype="dashed") +
+        labs(title = "Summarized Environmental Space")+
+        theme(text = element_text(size=18),
+              legend.position = "none")+
+        geom_text(inherit.aes = F,
+                  data= var_signif_glob ,
+                  aes(x=Dim.1*c, y=Dim.2*c, 
+                      label=labs.vars[names(labs.vars) %in% Variable]),
+                  size=4,
+                  fontface = "bold",
+                  check_overlap = TRUE,
+                  vjust="inward",hjust="inward")
+      
+      P_dim_vars <- df_proba_PCA_dim %>%
+        filter(Use == use_i, Month == month_i) %>%
+        ggplot() +
+        stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
+                         fun = function(x) median(x), bins=25,colour='grey') +
+        scale_fill_viridis(na.value = "transparent",
+                           limits=c(0,1), alpha=0.7)+
+        geom_segment(inherit.aes = F,
+                     data= var_signi_dims ,
+                     aes(x = 0, y = 0,
+                         xend =  Dim.1 *coef_multi,
+                         yend =  Dim.2 *coef_multi),
+                     arrow = arrow(length = unit(1/2, "picas")),
+                     size=1.5) +
+        facet_wrap(~dimension, scales = "free",labeller = labeller(dimension = labs.env),
+                   drop=F)+
+        geom_hline(yintercept = 0,linetype="dashed")+
+        geom_vline(xintercept = 0,linetype="dashed") +
+        theme(text = element_text(size=15),
+              legend.position = "none") + 
+        labs(title = "Dimensions of Environmental Space") +
+        geom_text(inherit.aes = F,
+                  data= var_signi_dims ,
+                  aes(x=Dim.1*c, y=Dim.2*c, 
+                      label=labs.vars[names(labs.vars) %in% Variable]),
+                  size=4,
+                  fontface = "bold",
+                  check_overlap = TRUE,
+                  vjust="inward",hjust="inward")
+
+        design <- "
+  11222
+  11222
+  11222
+  #3222
+"
+      
+      P_all <- P_glob + P_dim + p_legend + plot_layout(design = design) +
+        plot_annotation(title =  uses.labs[names(uses.labs) %in% use_i],
+                        subtitle = month_i,
+                        theme = theme(plot.title = element_text(size = 24,face = "bold"),
+                                      plot.subtitle = element_text(size = 20,face = "italic")
+                        )
+        )
+      
+      P_all_bis <- P_glob + P_dim_vars + p_legend + plot_layout(design = design) +
+        plot_annotation(title =  uses.labs[names(uses.labs) %in% use_i],
+                        subtitle = month_i,
+                        theme = theme(plot.title = element_text(size = 24,face = "bold"),
+                                      plot.subtitle = element_text(size = 20,face = "italic")
+                        )
+        )
+      
+      P_all_ter <- P_glob_vars + P_dim_vars + p_legend + plot_layout(design = design) +
+        plot_annotation(title =  uses.labs[names(uses.labs) %in% use_i],
+                        subtitle = month_i,
+                        theme = theme(plot.title = element_text(size = 24,face = "bold"),
+                                      plot.subtitle = element_text(size = 20,face = "italic")
+                        )
+        )
+      
+      path <- paste0(dirname(Espace_dim_path),"/",
+                     df_time$mois[df_time$english_month == month_i],
+                     "/by_use/glob_and_dim/") 
+
+      if(!dir.exists(path)){dir.create(path)}
+      if(dim(P_glob$data)[1] != 0){
+        png(file = paste0(path,
+                          "/",use_i,
+                          "_E_space_glob_dim.png"),
+            width=2100, height=1200)
+        plot(P_all)
+        dev.off()
+        
+        png(file = paste0(path,
+                          "/",use_i,
+                          "_E_space_glob_dim_vars_signif.png"),
+            width=2100, height=1200)
+        plot(P_all_bis)
+        dev.off()
+        
+        png(file = paste0(path,
+                          "/",use_i,
+                          "_E_space_glob_dim_vars_signif2.png"),
+            width=2100, height=1200)
+        plot(P_all_ter)
+        dev.off()
+      }
+    }
+  }
+
+  
+  
+  
+  
+  
+  
+  
+  # TODO : Schoener D local
+  
+}
+
+
+
 
 # Compute overlap D schoener between 2 uses
 DSchoener <- function(i, j){(0.5*(sum(abs(i - j), na.rm=T)))}
@@ -276,6 +1238,10 @@ applyD_Schoener_proba_pred <- function(liste_usages,
     df_proba_us <- data.frame(data.table(stack_proba[]))
   }
   if(space == "GE"){
+    
+    # 1 = charger les rasters proba prédites du mois étudié
+    # 2 = 
+    
     
     # load raster of proba for month studied
     list_rast <- base::list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
@@ -1216,514 +2182,13 @@ LinkProbaEnv <- function(mois,
   names(labs.env) <- c("B","CA","CS",
                        "D","I", "PV")
   
-  labs.vars <- c("GDD","NDVI","Water Balance",
-                 "No Foliage","Rare Foliage","Medium Foliage","Abundant Foliage",
-                 "Easting","Snow Height","Erosion","Number of Landforms",
-                 "Freezing Days","Low Nebulosity","High Nebulosity","No Thawing",
-                 "Northing","Slope","No Rain","Landforms Diversity",
-                 "Solar Radiation","Low Temperature","High Temperature","TWI",
-                 "Low Wind","High Wind","Land","Open Water",
-                 "Canyons","Shallow Valleys","Headwaters","U-Shape Valleys",
-                 "Plains","Open Slopes","Upper Slopes","Local Ridges","Midslope Ridges",
-                 "Mountain Tops",
-                 "Distance from Open Waters","Distance from Forest",
-                 "Distance from Infrastructure","Similar Habitat (1km)",
-                 "Similar Habitat (100m)","Similar Habitat (250m)","Similar Habitat (500m)",
-                 "Size of Habitat Patch","Access Time","Visibility",
-                 "Temperature Shift","No Avalanche","Avalanche Area",
-                 "Infrastructure Cover","Natural Environment","Modified Environment",
-                 "Road","Building",
-                 "Outside Protected Area","Protected Area","Restricted Area",
-                 "Canopy Maximum Height","Number of Vegetation Stratum",
-                 "High Vegetation Cover Penetrability","Medium Vegetation Cover Penetrability",
-                 "Low Vegetation Cover Penetrability"
-                 )
-  names(labs.vars) <- c("GDD","NDVI","P_ETP",
-                        "abondance_feuillage0","abondance_feuillage1",
-                        "abondance_feuillage2","abondance_feuillage3",
-                        "easting_25m","htNeigmean","LS_factor","nb_distinct_landform",
-                        "nbJgel","nbJneb10","nbJneb90","nbJssdegel",
-                        "northing_25m","pente_25m","rain0","shannon_landform",
-                        "SWDmean","t10","t90","TWI_25m","wind10","wind90",
-                        "presence_eau0","presence_eau1",
-                        "landform_25m1","landform_25m2","landform_25m3",
-                        "landform_25m4","landform_25m5","landform_25m6",
-                        "landform_25m7","landform_25m8","landform_25m9",
-                        "landform_25m10",
-                        "distance_eau","distance_foret_IGN_cout_pente",
-                        "distance_infrastructure","habitat_similaire_1000m",
-                        "habitat_similaire_100m","habitat_similaire_250m","habitat_similaire_500m",
-                        "taille_patch_habitat_m2","temps_acces","visibilite_mediane",
-                        "diffT","presence_avalanche0","presence_avalanche1",
-                        "pourcentage_infrastructures","degre_artif0","degre_artif1",
-                        "degre_artif2","degre_artif3",
-                        "degre_interdiction0","degre_interdiction1","degre_interdiction2",
-                        "ht_physio_max","nb_strates","penetrabilite1",
-                        "penetrabilite2","penetrabilite3"
-                        )
+ 
   
   df_time <- data.frame(mois = c("mai","juin","juillet","aout","septembre"),
                         english_month = c("May","June","July","August","September")  )
   english_month <- df_time$english_month[df_time$mois == mois]
   path_save <- paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
                       fit,"/",algorithme,"/")
-  
-  if(type_espace == "dimension"){
-    # Environmental space, for month studied
-    PCA1 <- stack(list.files(path=paste0(gitCaractMilieu,"/output/ACP/",liste.dim,"/summer/sans_ponderation/pred_month/",mois),
-                             "axe1", full.names = T
-    ))
-    
-    PCA2 <- stack(list.files(path=paste0(gitCaractMilieu,"/output/ACP/",liste.dim,"/summer/sans_ponderation/pred_month/",mois),
-                             "axe2", full.names = T
-    ))
-  }
-  if(type_espace == "ACP_globale"){
-    PCA1 <- stack(list.files(path=paste0(gitCaractMilieu,"/output/ACP/ACP_avec_ponderation/summer/pred_month/",mois),
-                             "axe1", full.names = T
-    ))
-    
-    PCA2 <- stack(list.files(path=paste0(gitCaractMilieu,"/output/ACP/ACP_avec_ponderation/summer/pred_month/",mois),
-                             "axe2", full.names = T
-    ))
-  }
-  
-  PCA_stack <- stack(PCA1,PCA2)
-  df_env <- data.frame(data.table(PCA_stack[]))
-  df_env <- cbind(coordinates(PCA_stack),df_env)
-
-  # Predicted probabilities, for model studied
-  a <- paste0(output_path,"/niches/",type_donnees,"/",liste.usages, "/", fit,"/predictions_glm/")
-  a <- list.files(a,pattern= '.tif$', full.names = T)
-  a <- a[grep(mois,a)]
-  stack_us <- stack(a)
-  n <- nchar(mois) + nchar(fit)+  nchar(algorithme) + 33
-  uses <- str_sub(string = a, start=-n-1, end=-n)
-  names(stack_us) <- unlist(lapply(uses, function(x) paste0(x,c("_obs","_proba","_pred"))))
-  df_us <- data.frame(data.table(stack_us[]))
-  df_us <- cbind(coordinates(stack_us),df_us)
-  # Merge env + uses
-  df_env_us <- merge(df_env, df_us, by=c("x","y"))
-  write.csv(df_env_us,
-            paste0(path_save,"/",type_espace,"_dt_PCAdims_uses_",mois,".csv")
-            )
-
-  df_proba_us_plot <- df_env_us %>% pivot_longer(cols=ends_with("proba"),
-                                                      names_to = "Use", 
-                                                      values_to = "Proba")
-
-  df_proba_us_plot_new <- df_proba_us_plot 
-  df_proba_us_plot_new$Use <- factor(df_proba_us_plot_new$Use,
-                                     levels = c("Ni_proba","Pa_proba","Rp_proba",
-                                                "Lk_proba","Co_proba", "Vt_proba"))
-  # Plot map (G space)
-  map <- na.omit(df_proba_us_plot_new) %>%
-    ggplot() +
-    geom_raster(aes(x = x, y = y, fill = Proba)) +
-    #scale_fill_distiller(palette ="RdBu",direction=1) +
-    scale_fill_viridis(limits=c(0,1)) +
-    #theme_void() +
-    theme(panel.background = element_rect(fill="white"),
-          plot.background = element_rect(fill="white"),
-          panel.grid.major = element_line(colour="grey"),
-          legend.position = "right",
-          text = element_text(size=15),
-          axis.text.x = element_text(angle=45)) +
-    labs(fill="Probability of\noccurrence", title = english_month,
-         x="Longitude",y="Latitude")+
-    facet_wrap(.~Use,labeller = labeller(Use = supp.labs),drop=F)+
-    coord_equal()
-  map
-  png(file = paste0(path_save,"/overlap_metrics/G_space/proba/map_proba_G_",mois,".png"),width=1400, height=800)
-  plot(map)
-  dev.off()
-  
-  cat("Cartographie dans espace G terminée.\n")
-  ### probabilities of occurrence, in PCA space, by dimension
-
-  # be able to facet by dimension and use
-  
-  if(type_espace == "dimension"){
-    dfPCA1 <- df_env_us[,1:8]
-    dfPCA1 <- dfPCA1  %>% 
-      pivot_longer(cols=starts_with("axe1"),
-                   names_to = "dimension", 
-                   values_to = "PCA1") 
-    dfPCA1$dimension <- unlist(lapply(strsplit(dfPCA1$dimension,"_"), function(x) x[[2]]))
-    
-    dfPCA2 <- df_env_us[,c(1,2,9:14)]
-    dfPCA2 <- dfPCA2  %>% 
-      pivot_longer(cols=starts_with("axe2"),
-                   names_to = "dimension", 
-                   values_to = "PCA2") 
-    dfPCA2$dimension <- unlist(lapply(strsplit(dfPCA2$dimension,"_"), function(x) x[[2]]))
-    
-    dfPCA <-  merge(dfPCA1,dfPCA2, by=c("x","y","dimension"))
-    dfPCA_us <- merge(dfPCA, df_us, by=c("x","y"))
-    dfPCA_us <- dfPCA_us %>% pivot_longer(cols=ends_with("proba"),
-                                          names_to = "Use", 
-                                          values_to = "Proba")
-    dfPCA_us$Use <- factor(dfPCA_us$Use,
-                           levels = c("Ni_proba","Pa_proba","Rp_proba",
-                                      "Lk_proba","Co_proba", "Vt_proba"))
-  }
-  if(type_espace == "ACP_globale"){
-    dfPCA_us <- df_env_us %>% pivot_longer(cols=ends_with("proba"),
-                                           names_to = "Use", 
-                                           values_to = "Proba")
-    names(dfPCA_us)[3:4] <- c("PCA1","PCA2")
-  }
-
-  path_use_i <- paste0(path_save,"/overlap_metrics/E_space/proba_filter/",type_espace,"/",unique(dfPCA_us$Use),"/",mois)
-  if(any(!dir.exists(path_use_i))){
-    lapply(path_use_i, function(x) dir.create(x, recursive = T))}
-  
-  # For all uses, in all 6 dimensions, proba in E space
-  if(type_espace == "dimension"){
-    dim_E_plot <- dfPCA_us %>%
-      ggplot() +
-      stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
-                       fun = function(x) median(x), bins=50,colour='grey')+
-      scale_fill_viridis(na.value = "transparent",
-                         limits=c(0,1)) +
-      geom_hline(yintercept = 0,linetype="dashed")+
-      geom_vline(xintercept = 0,linetype="dashed") +
-      facet_grid(Use~ dimension , scales = "free",
-                 labeller = labeller(Use = supp.labs, dimension = labs.env))+
-      labs(title = "Median Probability Grided",
-           fill = "Median probability\nof occurrence",
-           subtitle = english_month)+
-      theme(text = element_text(size=18))
-  }
-  if(type_espace == "ACP_globale"){
-    dim_E_plot <- dfPCA_us %>%
-      ggplot() +
-      stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
-                       fun = function(x) median(x), bins=50,colour='grey')+
-      scale_fill_viridis(na.value = "transparent",
-                         limits=c(0,1)) +
-      geom_hline(yintercept = 0,linetype="dashed")+
-      geom_vline(xintercept = 0,linetype="dashed") +
-      facet_wrap( ~ Use , scales = "free",ncol=3,nrow=2,
-                 labeller = labeller(Use = supp.labs))+
-      labs(title = "Median Probability Grided",
-           fill = "Median probability\nof occurrence",
-           subtitle = english_month)+
-      theme(text = element_text(size=18))
-  }
-  
-  dim_E_plot
-  png(file = paste0(path_save,"/overlap_metrics/E_space/proba_filter/",
-                    type_espace,"/proba_E_dimensions_",mois,".png"),
-      width=2100, height=1200)
-  plot(dim_E_plot)
-  dev.off()
-  # bien pour vu d'ensemble mais peu lisible dans le détail
-  
-  # For 1 use, in all 6 dimensions, proba in E space
-  for(use in unique(dfPCA_us$Use)) {
-    # # TEST
-    # use = unique(dfPCA_us$Use)[1]
-    
-    ind_save <- grep(use,path_use_i)
-    
-    name_use <- supp.labs[which(names(supp.labs) == use)]
-
-    if(type_espace == "dimension"){
-      P <- dfPCA_us %>%
-        filter(Use == use) %>%
-        ggplot() +
-        stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
-                         fun = function(x) median(x), bins=50,colour='grey')+
-        scale_fill_viridis(na.value = "transparent",limits=c(0,1)) +
-        # scale_fill_distiller(palette ="RdBu",na.value = "transparent",direction=1,
-        #                      limits=c(0,1)) +
-        geom_hline(yintercept = 0,linetype="dashed")+
-        geom_vline(xintercept = 0,linetype="dashed") +
-        facet_wrap(~dimension, scales = "free",
-                   labeller = labeller(dimension = labs.env))+
-        labs(title = name_use,
-             fill = "Median probability\nof occurrence",
-             subtitle = english_month)+
-        theme(text = element_text(size=18))
-      nom_plot <- paste0(path_use_i[ind_save],"/par_dimension.png")
-    }
-    if(type_espace == "ACP_globale"){
-      P <- dfPCA_us %>%
-        filter(Use == use) %>%
-        ggplot() +
-        stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
-                         fun = function(x) median(x), bins=75,colour='grey')+
-        scale_fill_viridis(na.value = "transparent",limits=c(0,1)) +
-        # scale_fill_distiller(palette ="RdBu",na.value = "transparent",direction=1,
-        #                      limits=c(0,1)) +
-        geom_hline(yintercept = 0,linetype="dashed")+
-        geom_vline(xintercept = 0,linetype="dashed") +
-        # facet_wrap(~dimension, scales = "free",
-        #            labeller = labeller(dimension = labs.env))+
-        labs(title = name_use,
-             fill = "Median probability\nof occurrence",
-             subtitle = english_month)+
-        theme(text = element_text(size=18))
-      nom_plot <- paste0(path_use_i[ind_save],"/ACP_globale.png")
-    }
-    P
-    png(file = nom_plot,
-        width=2100, height=1200)
-    plot(P)
-    dev.off()
-  }
-  
-  # Fonction qui pour un usage, visualise les variables significatives
-  # dans chaque dimension ou dans l'espace ACP globale
-  VisuVarSignifDimsfor1Use <- function(use_i){ # i représente une dimension
-    # # TEST
-    # use_i = unique(dfPCA_us$Use)[1]
-    
-    cat(paste0(as.character(use_i)," - "))
-    
-    ind_save <- grep(use_i,path_use_i)
-    # SDM data
-    load(paste0(output_path,"/niches/",type_donnees,"/",str_sub(use_i,1,-7),"/",
-                fit,"/modele_",algorithme,".rdata"))
-    # ne garder que les variables appartenant à la dim_i
-    tbl_var_model <- as.data.frame(summary(model.fit)$coeff)
-    tbl_var_model$Variable <- rownames(tbl_var_model)
-    
-    # Plot : significant variable for use_i in red
-    coef_multi <- 1
-    c <- 1.1
-    
-    # Extract all PCA data and rbind
-    GetSignifVarbyDim <- function(i){ # i varie de 1 à 6, le nb de dimensions
-      
-      if(type_espace == "dimension") {
-        # Dimension
-        dim_i <- sort(liste.dim)[i]
-        cat(paste0(dim_i))
-        # PCA data
-        a <- list.files(path=paste0(gitCaractMilieu,"/output/ACP/",dim_i,"/summer/sans_ponderation/"),
-                        ".rdata", full.names = T)
-        load(a) # load PCA 
-        PCAloadings <- data.frame(Variable = rownames(res.pca$var$coord), res.pca$var$coord)
-        
-        # ne garder que les variables appartenant à la dim_i
-        tbl_var_model_dim <- tbl_var_model[tbl_var_model$Variable %in% col_dim$Nom[col_dim$Dimension == dim_i],]
-        
-        # couleur significative variables
-        tbl_var_model_dim$plot_colour <- ifelse(tbl_var_model_dim$`Pr(>|z|)` < 0.001,"red","black")
-        tbl_var_model_dim$dimension <- dim_i
-        
-        PCAloadings_2 <- merge(tbl_var_model_dim, PCAloadings, by="Variable")
-        
-        # Affiche les variables significatives (rouge) et les autres (noir)
-        x <- labs.vars[names(labs.vars) %in% PCAloadings_2$Variable]
-        x <- x[sort(names(x))]
-        
-        P2 <- dfPCA_us %>%
-          filter(dimension == dim_i) %>%
-          filter(Use == use_i) %>%
-          ggplot() +
-          stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
-                           fun = function(x) median(x), bins=50,colour='grey') +
-          scale_fill_viridis(na.value = "transparent",
-                             limits=c(0,1), alpha=0.7)+
-          geom_segment(inherit.aes = F,
-                       data= PCAloadings_2 ,
-                       aes(x = 0, y = 0,
-                           xend =  Dim.1 *coef_multi,
-                           yend =  Dim.2 *coef_multi),
-                       colour = ifelse(PCAloadings_2$plot_colour == "red","red4","black"),
-                       arrow = arrow(length = unit(1/2, "picas")),
-                       size=1.5) +
-          annotate("text", x = (PCAloadings_2$Dim.1* c), y = (PCAloadings_2$Dim.2*c),
-                   label = x,
-                   size=ifelse(PCAloadings_2$plot_colour == "red",8,7),
-                   colour = ifelse(PCAloadings_2$plot_colour == "red","red","black")) +
-          geom_hline(yintercept = 0,linetype="dashed")+
-          geom_vline(xintercept = 0,linetype="dashed") +
-          theme(text = element_text(size=15)) +
-          labs(title = paste0(supp.labs[which(names(supp.labs) == use_i)]," - ",
-                              labs.env[which(names(labs.env) == dim_i)]),
-               fill = "Median probability\nof occurrence",
-               subtitle = english_month)
-        P2
-        nom_P2 <- paste0(path_use_i[ind_save],"/dim_",dim_i,"_varsignifs.png")
-        
-        # N'affiche que les variables significatives
-        PCAloadings2 <- PCAloadings_2 %>%
-          filter(plot_colour == "red")
-        x2 <- labs.vars[names(labs.vars) %in% PCAloadings2$Variable]
-        x2 <- x2[sort(names(x2))]
-        P2bis <- dfPCA_us %>%
-          filter(dimension == dim_i) %>%
-          filter(Use == use_i) %>%
-          ggplot() +
-          stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
-                           fun = function(x) median(x), bins=50,colour='grey') +
-          scale_fill_viridis(na.value = "transparent",
-                             limits=c(0,1), alpha=0.7)+
-          geom_segment(inherit.aes = F,
-                       data= PCAloadings2 ,
-                       aes(x = 0, y = 0,
-                           xend =  Dim.1 *coef_multi,
-                           yend =  Dim.2 *coef_multi),
-                       #colour = ifelse(PCAloadings$plot_colour == "red","red4","black"),
-                       arrow = arrow(length = unit(1/2, "picas")),
-                       size=1.5) +
-          annotate("text", x = (PCAloadings2$Dim.1* c), y = (PCAloadings2$Dim.2*c),
-                   label = x2,
-                   size=8) +
-          #colour = ifelse(PCAloadings$plot_colour == "red","red","black")) +
-          geom_hline(yintercept = 0,linetype="dashed")+
-          geom_vline(xintercept = 0,linetype="dashed") +
-          theme(text = element_text(size=15),
-                legend.position = "none") +
-          labs(title = paste0(labs.env[which(names(labs.env) == dim_i)]),
-               fill = "Median probability\nof occurrence")
-        P2bis
-        nom_P2bis <- paste0(path_use_i[ind_save],"/dim_",dim_i,"_varsignifs_only.png") 
-
-        PCA_vars <- PCAloadings_2[,1:9]
-      }
-      if(type_espace == "ACP_globale"){
-        # PCA data
-        a <- list.files(path=paste0(gitCaractMilieu,"/output/ACP/ACP_avec_ponderation/summer/"),
-                        ".rdata", full.names = T)
-        load(a) # load PCA 
-        PCAloadings <- data.frame(Variable = rownames(res.pca$var$coord), res.pca$var$coord)
-        tbl_var_model_dim <- tbl_var_model
-        tbl_var_model_dim$plot_colour <- ifelse(tbl_var_model_dim$`Pr(>|z|)` < 0.001,"red","black")
-        PCAloadings_2 <- merge(tbl_var_model_dim, PCAloadings, by="Variable")
-        
-        # Affiche les variables significatives (rouge) et les autres (noir)
-        x <- labs.vars[names(labs.vars) %in% PCAloadings_2$Variable]
-        x <- x[sort(names(x))]
-        
-        P2 <- dfPCA_us %>%
-          filter(Use == use_i) %>%
-          ggplot() +
-          stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
-                           fun = function(x) median(x), bins=50,colour='grey') +
-          scale_fill_viridis(na.value = "transparent",
-                             limits=c(0,1), alpha=0.7)+
-          geom_segment(inherit.aes = F,
-                       data= PCAloadings_2 ,
-                       aes(x = 0, y = 0,
-                           xend =  Dim.1 *coef_multi,
-                           yend =  Dim.2 *coef_multi),
-                       colour = ifelse(PCAloadings_2$plot_colour == "red","red4","black"),
-                       arrow = arrow(length = unit(1/2, "picas")),
-                       size=1.5) +
-          annotate("text", x = (PCAloadings_2$Dim.1* c), y = (PCAloadings_2$Dim.2*c),
-                   label = x,
-                   size=ifelse(PCAloadings_2$plot_colour == "red",8,7),
-                   colour = ifelse(PCAloadings_2$plot_colour == "red","red","black")) +
-          geom_hline(yintercept = 0,linetype="dashed")+
-          geom_vline(xintercept = 0,linetype="dashed") +
-          theme(text = element_text(size=15)) +
-          labs(title = paste0(supp.labs[which(names(supp.labs) == use_i)]),
-               fill = "Median probability\nof occurrence",
-               subtitle = english_month)
-        nom_P2 <- paste0(path_use_i[ind_save],"/ACP_globale_varsignifs.png")
-        
-        # N'affiche que les variables significatives
-        PCAloadings2 <- PCAloadings_2 %>%
-          filter(plot_colour == "red")
-        x2 <- labs.vars[names(labs.vars) %in% PCAloadings2$Variable]
-        x2 <- x2[sort(names(x2))]
-        P2bis <- dfPCA_us %>%
-          filter(Use == use_i) %>%
-          ggplot() +
-          stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
-                           fun = function(x) median(x), bins=50,colour='grey') +
-          scale_fill_viridis(na.value = "transparent",
-                             limits=c(0,1), alpha=0.7)+
-          geom_segment(inherit.aes = F,
-                       data= PCAloadings2 ,
-                       aes(x = 0, y = 0,
-                           xend =  Dim.1 *coef_multi,
-                           yend =  Dim.2 *coef_multi),
-                       #colour = ifelse(PCAloadings$plot_colour == "red","red4","black"),
-                       arrow = arrow(length = unit(1/2, "picas")),
-                       size=1.5) +
-          annotate("text", x = (PCAloadings2$Dim.1* c), y = (PCAloadings2$Dim.2*c),
-                   label = x2,
-                   size=8) +
-          #colour = ifelse(PCAloadings$plot_colour == "red","red","black")) +
-          geom_hline(yintercept = 0,linetype="dashed")+
-          geom_vline(xintercept = 0,linetype="dashed") +
-          theme(text = element_text(size=15)) +
-          labs(fill = "Median probability\nof occurrence")
-        P2bis
-        nom_P2bis <- paste0(path_use_i[ind_save],"/ACP_globale_varsignifs_only.png") 
-
-        PCA_vars <- PCAloadings_2[,1:8]
-      }
-      # Save plots
-      png(file = nom_P2,
-          width=2100, height=1200)
-      plot(P2)
-      dev.off()
-      png(file = nom_P2bis,
-          width=2100, height=1200)
-      plot(P2bis)
-      dev.off()
-      
-      return(PCA_vars)
-    }
-    
-    if(type_espace == "dimension"){
-      var_signi_dims <- do.call(rbind,lapply(1:length(liste.dim),GetSignifVarbyDim))   
-    }
-    if(type_espace == "ACP_globale"){
-      var_signi_dims <- GetSignifVarbyDim()
-    }
-    
-    # Filter only by significative varibales
-    var_signi_dims2 <- var_signi_dims %>%
-      filter(plot_colour == "red")
-    
-    # TODO : pas ultra-satisfaisant, difficile de lire les noms des variables
-    # qui se chevauchent + sortent du cadre
-    if(type_espace == "dimension") {
-      P1 <- dfPCA_us %>%
-        filter(Use == use_i) %>%
-        ggplot() +
-        stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
-                         fun = function(x) median(x), bins=50,colour='grey') +
-        scale_fill_viridis(na.value = "transparent",
-                           limits=c(0,1), alpha=0.7)+
-        geom_segment(inherit.aes = F,
-                     data= var_signi_dims2 ,
-                     aes(x = 0, y = 0,
-                         xend =  Dim.1 *coef_multi,
-                         yend =  Dim.2 *coef_multi),
-                     #colour = ifelse(PCAloadings$plot_colour == "red","red4","black"),
-                     arrow = arrow(length = unit(1/2, "picas")),
-                     size=1.5) +
-        facet_wrap(~dimension, scales = "free",labeller = labeller(dimension = labs.env))+
-        geom_hline(yintercept = 0,linetype="dashed")+
-        geom_vline(xintercept = 0,linetype="dashed") +
-        theme(text = element_text(size=15)) +
-        labs(title = supp.labs[which(names(supp.labs) == use_i)],
-             fill = "Median probability\nof occurrence",
-             subtitle = english_month) +
-        geom_text(inherit.aes = F,
-                  data= var_signi_dims2 ,
-                  aes(x=Dim.1*c, y=Dim.2*c, 
-                      label=labs.vars[names(labs.vars) %in% Variable]),
-                  size=6,
-                  check_overlap = TRUE)
-      
-      png(file = paste0(path_use_i[ind_save],"/proba_E_dimensions_varsignif.png"),
-          width=2100, height=1200)
-      plot(P1)
-      dev.off()
-    }
-  }
-  lapply(as.character(unique(dfPCA_us$Use)), VisuVarSignifDimsfor1Use)
-
 }
 
 ### Constantes -------------------------------------
@@ -1762,6 +2227,52 @@ corresp_col = data.frame(dim_name = c(liste.dim,"toutes"),
 type_donnees = "brute"
 algorithme = "glm"
 fit = "all_simple"
+
+labs.vars <- c("GDD","NDVI","Water Balance",
+               "No Foliage","Rare Foliage","Medium Foliage","Abundant Foliage",
+               "Easting","Snow Height","Erosion","Number of Landforms",
+               "Freezing Days","Low Nebulosity","High Nebulosity","No Thawing",
+               "Northing","Slope","No Rain","Landforms Diversity",
+               "Solar Radiation","Low Temperature","High Temperature","TWI",
+               "Low Wind","High Wind","Land","Open Water",
+               "Canyons","Shallow Valleys","Headwaters","U-Shape Valleys",
+               "Plains","Open Slopes","Upper Slopes","Local Ridges","Midslope Ridges",
+               "Mountain Tops",
+               "Distance from Open Waters","Distance from Forest",
+               "Distance from Infrastructure","Similar Habitat (1km)",
+               "Similar Habitat (100m)","Similar Habitat (250m)","Similar Habitat (500m)",
+               "Size of Habitat Patch","Access Time","Visibility",
+               "Temperature Shift","No Avalanche","Avalanche Area",
+               "Infrastructure Cover","Natural Environment","Modified Environment",
+               "Road","Building",
+               "Outside Protected Area","Protected Area","Restricted Area",
+               "Canopy Maximum Height","Number of Vegetation Stratum",
+               "High Vegetation Cover Penetrability","Medium Vegetation Cover Penetrability",
+               "Low Vegetation Cover Penetrability"
+)
+names(labs.vars) <- c("GDD","NDVI","P_ETP",
+                      "abondance_feuillage0","abondance_feuillage1",
+                      "abondance_feuillage2","abondance_feuillage3",
+                      "easting_25m","htNeigmean","LS_factor","nb_distinct_landform",
+                      "nbJgel","nbJneb10","nbJneb90","nbJssdegel",
+                      "northing_25m","pente_25m","rain0","shannon_landform",
+                      "SWDmean","t10","t90","TWI_25m","wind10","wind90",
+                      "presence_eau0","presence_eau1",
+                      "landform_25m1","landform_25m2","landform_25m3",
+                      "landform_25m4","landform_25m5","landform_25m6",
+                      "landform_25m7","landform_25m8","landform_25m9",
+                      "landform_25m10",
+                      "distance_eau","distance_foret_IGN_cout_pente",
+                      "distance_infrastructure","habitat_similaire_1000m",
+                      "habitat_similaire_100m","habitat_similaire_250m","habitat_similaire_500m",
+                      "taille_patch_habitat_m2","temps_acces","visibilite_mediane",
+                      "diffT","presence_avalanche0","presence_avalanche1",
+                      "pourcentage_infrastructures","degre_artif0","degre_artif1",
+                      "degre_artif2","degre_artif3",
+                      "degre_interdiction0","degre_interdiction1","degre_interdiction2",
+                      "ht_physio_max","nb_strates","penetrabilite1",
+                      "penetrabilite2","penetrabilite3"
+)
 
 ### Programme -------------------------------------
 
