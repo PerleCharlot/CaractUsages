@@ -2,7 +2,7 @@
 # Nom : Calcul indices overlap
 # Auteure : Perle Charlot
 # Date de création : 10-03-2023
-# Dates de modification : 10-04-2023
+# Dates de modification : 13-04-2023
 
 ### Librairies -------------------------------------
 library(data.table)
@@ -25,9 +25,9 @@ meansd4listMatrices <- function(liste.matrices, liste_col_matx){
   # liste.usages = liste.usages
   
   pairwise_mean_D <- matrix(nrow = length(liste_col_matx), ncol = length(liste_col_matx), 
-                            dimnames = list(liste_col_matx,liste.usages) )
+                            dimnames = list(liste_col_matx,liste_col_matx))
   pairwise_sd_D <- matrix(nrow = length(liste_col_matx), ncol = length(liste_col_matx), 
-                          dimnames = list(liste_col_matx,liste_col_matx) )
+                          dimnames = list(liste_col_matx,liste_col_matx))
   for(i in 1:length(liste_col_matx)){
     for(j in 1:length(liste_col_matx)){
       pairwise_mean_D[j,i]  <- mean(unlist(lapply(liste.matrices, function(x) x[j,i])), na.rm=T)
@@ -114,7 +114,7 @@ saveMatrixSchoener <- function(matrix_M,path_to_save, liste_noms_matx,
   M = matrix(paste0(round(M_mean_sd$mean, 2), " (", 
                     round(M_mean_sd$sd, 2), ")"),
              6,6,
-             dimnames = list(sort(liste.usages),sort(liste.usages)))
+             dimnames = list(sort(liste_col_matx),sort(liste_col_matx)))
   M[upper.tri(M)] <- NA
   diag(M) <- 1
   df_mean_sd_D_obs = as.data.frame(M)
@@ -122,6 +122,41 @@ saveMatrixSchoener <- function(matrix_M,path_to_save, liste_noms_matx,
   write.csv(df_mean_sd_D_obs, 
             paste0(path_to_save,"/mat_schoener_d_mean_sd_summer.csv"))
   
+}
+
+# Function calling others to stock matrix
+StockMat <- function(m, dir_to_save, date){
+  list_m <- lapply(m , function(x) applySchoenerD_proba(x[[1]]))
+  if(!dir.exists(dir_to_save)){dir.create(dir_to_save, recursive = T)}
+  saveMatrixSchoener(matrix_M = list_m,
+                     path_to_save = dir_to_save, 
+                     liste_noms_matx = date,
+                     liste_col_matx = rownames(list_m[[2]]))
+}
+
+# Compute overlap D schoener between 2 uses
+DSchoener <- function(i, j){1-(0.5*(sum(abs(i - j), na.rm=T)))}
+DSchoener_local <- function(i, j, n){(1/n) - 0.5*abs(i - j)}
+
+# function that computes schoener D on prepared data
+applySchoenerD_proba <- function(data){
+  
+  data <- as.data.frame(apply(data,
+                              2,
+                              function(x) x/sum(x, na.rm=T)))
+  
+  nb_uses <- dim(data)[2]
+  nm_uses <- names(data)
+  
+  # Schoener D pairwise computation matrix
+  pairwise_D <- matrix(nrow = nb_uses, ncol = nb_uses, 
+                       dimnames = list(nm_uses,nm_uses) )
+  for(u1 in 1:nb_uses){
+    for(u2 in 1:nb_uses){
+      pairwise_D[u1,u2]  <- DSchoener(data[,u1], data[,u2])
+    }
+  }
+  return(pairwise_D)
 }
 
 # Fonction qui sort une table avec coordonnées xy et proba de tous les usages, pour un mois donné
@@ -309,12 +344,9 @@ GetEspaceTableDim <- function(mois,
   english_month <- df_time$english_month[df_time$mois == mois]
   # Environmental space, for month studied
   PCA1 <- stack(list.files(path=paste0(gitCaractMilieu,"/output/ACP/",liste.dim,"/summer/sans_ponderation/pred_month/",mois),
-                           "axe1", full.names = T
-  ))
-  
+                           "axe1", full.names = T))
   PCA2 <- stack(list.files(path=paste0(gitCaractMilieu,"/output/ACP/",liste.dim,"/summer/sans_ponderation/pred_month/",mois),
-                           "axe2", full.names = T
-  ))
+                           "axe2", full.names = T))
   PCA_stack <- stack(PCA1,PCA2)
   names(PCA_stack) <- gsub(x = names(PCA_stack),pattern = paste0("_",mois),replacement = "")
   plot(PCA_stack)
@@ -375,18 +407,13 @@ GetEspaceTableDim <- function(mois,
   dfPCA$Month <- english_month
   df_name <- "/df_coords_PCA_axes_dim.csv"
   write.csv(dfPCA, paste0(Espace_dim_path_month,df_name))
-  
-  # dfPCA2$Month <- english_month
+
   return(dfPCA)
-  
-  # dfPCA1,dfPCA2 ?
-  
 }
 
 # Fonction principale pour calculer l'indice D de Schoener entre paires d'usages
 
 trouverUnnom <- function(){
-  # TEST
   
   
   # directories paths
@@ -594,7 +621,6 @@ trouverUnnom <- function(){
     dev.off()
   }
 
-  # TODO : à faire tourner 
   ### E space : dimensions + global
   for(use_i in unique(df_proba_PCA_dim$Use)){
     cat(paste0("\n", uses.labs[names(uses.labs) %in% use_i]," : \n"))
@@ -1002,9 +1028,10 @@ trouverUnnom <- function(){
     }
   }
 
-  
   ### Schoener D (global et dimensions + Géo)
-
+  matrix_time <- df_time$english_month
+  
+  # function that prepare data to be computed for Schoener D
   trnsfrmDatabfrSchoenerD <- function(month_i, dimension_i = NULL, df,type_espace){
     # # Test
     # month_i = "July"
@@ -1070,246 +1097,313 @@ trouverUnnom <- function(){
 
     return(list(df_2, df_t))
   }
-  applySchoenerD_proba <- function(data){
-    
-    data <- as.data.frame(apply(data,
-                                2,
-                                function(x) x/sum(x, na.rm=T)))
-    
-    nb_uses <- dim(data)[2]
-    nm_uses <- names(data)
-    
-    # Schoener D pairwise computation matrix
-    pairwise_D <- matrix(nrow = nb_uses, ncol = nb_uses, 
-                         dimnames = list(nm_uses,nm_uses) )
-    for(u1 in 1:nb_uses){
-      for(u2 in 1:nb_uses){
-        pairwise_D[u1,u2]  <- DSchoener(data[,u1], data[,u2])
-      }
-    }
-    return(pairwise_D)
+
+  # Geographic Space
+  list_D_Gspace <- lapply(df_time$english_month, 
+                          function(x) 
+                            trnsfrmDatabfrSchoenerD(month_i = x,
+                                                    df = df_proba_PCA_glob,
+                                                    type_espace = "G"))
+  StockMat(list_D_Gspace, paste0(Gspace_path, "/matrices_schoener_D/"),matrix_time)
+  # Ecological (global) Space
+  list_D_Espace <- lapply(df_time$english_month,
+                          function(x)
+                            trnsfrmDatabfrSchoenerD(month_i = x,
+                                                    df = df_proba_PCA_glob,
+                                                    type_espace = "E"))
+  StockMat(list_D_Espace, paste0(Espace_path, "/global/matrices_schoener_D/"),matrix_time)
+  # Ecological (by dimensions) Space
+  for(dim_i in liste.dim){
+    list_D_Espace_dim <- lapply(df_time$english_month,
+                                function(x)
+                                  trnsfrmDatabfrSchoenerD(month_i = x,
+                                                          dimension_i = dim_i,
+                                                          df = df_proba_PCA_dim,
+                                                          type_espace = "E"))
+    StockMat(list_D_Espace_dim, 
+             paste0(Espace_path, "/dimensions/matrices_schoener_D/",dim_i,"/"),
+             matrix_time)
   }
-  
-  # G
-  # TODO : lapply sur tous les mois
-  a <- trnsfrmDatabfrSchoenerD(month_i = "July",
-                          df = df_proba_PCA_glob,
-                          type_espace = "G")
-  D_G <- applySchoenerD_proba(a[[1]])
-  # E global
-  # TODO : lapply sur tous les mois
-  a <- trnsfrmDatabfrSchoenerD(month_i = "July",
-                          df = df_proba_PCA_glob,
-                          type_espace = "E")
-  D_E_glob <- applySchoenerD_proba(a[[1]])
-  # E dimension CA
-  # TODO : lapply sur tputes les dimensions, tous les mois
-  a <- trnsfrmDatabfrSchoenerD(month_i = "July",
-                          dimension_i = "CA",
-                          df = df_proba_PCA_dim,
-                          type_espace = "E")
-  D_E_CA <- applySchoenerD_proba(a[[1]])
-  
-  # TODO : save all
-  saveMatrixSchoener(matrix_M,
-                     path_to_save, 
-                     liste_noms_matx,
-                     liste_col_matx)
-  
-  
+
   # TODO 
   ### Schoener D local
-  
-}
+  # Tester sur un échantillon
+  a <- as.data.frame(list_D_Gspace[[2]][2])
 
+  f2 <- function(i,j){abs(i - j) + 1 - max(i,j, na.rm=T)}
+  
+  voyons <-f2(a$Pa_proba, a$Rp_proba)
+  a$indice_test <- voyons
+  
+  a2 <- a %>% 
+    mutate(across(ends_with("proba"), ~ .x/sum(.x, na.rm=T) ))  %>%
+    dplyr::select(-starts_with("NA")) %>%
+  filter(!if_all(ends_with("proba"), is.na))
+  
+  a2 <- a2 %>%
+    dplyr::select(c(x,y,Pa_proba,Rp_proba))
+  
+  DSchoener(a2$Rp_proba, a2$Pa_proba)
 
+  
+  mcAL_overlap(a2$Rp_proba, a2$Pa_proba)# how much Pa overlap Rp
+  mcAL_overlap(a2$Pa_proba, a2$Rp_proba)# how much Rp overlap Pa
+  
+  
+  b <- DSchoener_local(a2$Rp_proba, a2$Pa_proba, n=dim(a2)[1]) # D schoener E global mai = 0.867
+  sum(b, na.rm=T) # devrait être égal à Schoener
+  a2$D_local <- b
 
-
-# Compute overlap D schoener between 2 uses
-DSchoener <- function(i, j){(0.5*(sum(abs(i - j), na.rm=T)))}
-
-DSchoener_local <- function(i, j,n){ (1/n) -(0.5*(sum(abs(i - j), na.rm=T)))}
-
-# Fonction qui retourne un dataframe avec o_ij e_ij et z_ij pour un usage, pour un mois
-GridObs <- function(usage,  mois,
-                    type_donnees = "ACP_avec_ponderation", 
-                    algorithme = "glm", fit = "2_axes"){
   
-  # #TEST
-  # usage = liste.usages[1]
-  # mois = liste.mois[2]
-  # type_donnees = "ACP_avec_ponderation" # "ACP_ACP" ou "ACP_avec_ponderation" ou
-  # # "ACP_sans_ponderation" ou "brute"
-  # fit = "2_axes" # "2_axes" ou all_simple"
-  # algorithme = "glm"
+  a2$D_local2 <- a2$D_local
+  a2$D_local2 <- ifelse(a2$Pa_proba < 0.0000001 & a2$Rp_proba < 0.0000001,
+                        (1/dim(a2)[1]) - 1/2,
+                        a2$D_local2)
   
-  cat("\nUsage : ", usage)
+  sum(a2$D_local2)
+  hist(a2$D_local)
+  sum(a2$D_local)
   
-  # Conserver les chemins
-  chemin_esp_eco = paste0(output_path,"/niches/",type_donnees,"/",usage,"/",
-                          fit,"/predictions_",algorithme,"/espace_eco/")
-  chemin_pred = paste0(output_path,"/niches/",type_donnees,"/",usage,"/",
-                       fit,"/predictions_",algorithme,"/")
-  
-  # import data pour dessiner contour niche
-  load(paste0(chemin_esp_eco,"/niche_potentielle.rdata")) # load grid_usage_rdata limits seuil
-  # import data du mois en cours
-  dt_uses_env <- fread(paste0(chemin_pred,"/dt_probUs_condiEnv_",mois,".csv"), dec=",")
-  names(dt_uses_env)[1:3] = c("obs_usage","proba_presence","pred_presence")
-  # correction noms colonnes
-  if(fit == "2_axes"){
-    ncols = 2
-    ind_endaxe = grep("axe2", names(dt_uses_env))
-    ind_x = grep("x$", names(dt_uses_env))
-    ind_y = grep("y$", names(dt_uses_env))
-    dt_uses_env = dt_uses_env[,c(1:ind_endaxe,ind_x, ind_y), with=FALSE]
-    names(dt_uses_env)[4:grep("axe2", names(dt_uses_env))] = paste0("axe",seq(1,ncols))
-  }else{
-    ncols = length(grep("axe", names(dt_uses_env)))
-    names(dt_uses_env)[4:grep(paste0("axe",ncols), names(dt_uses_env))] = paste0("axe",seq(1,ncols))
-  }
-  # Filtrer entre -1 et 1
-  dt_uses_env2 = dt_uses_env %>% 
-    filter( axe1 >= limits[1] ) %>%
-    filter( axe2 >= limits[3] ) %>%
-    filter( axe1 <= limits[2] ) %>%
-    filter( axe2 <= limits[4] ) 
-  
-  # Grid 100 * 100
-  dt_uses_env_grid2 = dt_uses_env2 %>% mutate(
-    cut_x = cut(axe1, breaks = round(seq(from = limits[1], to = limits[2], length.out = 100),2),
-                include.lowest = T),
-    cut_y = cut(axe2, breaks = round(seq(from = limits[3], to = limits[4], length.out = 100),2),
-                include.lowest = T)
-  ) %>%
-    group_by(cut_x, cut_y, .drop = FALSE) %>% 
-    summarise(n_bin = n(), 
-              mean_proba = mean(proba_presence, na.rm=T ),
-              sd_proba = sd(proba_presence),
-              sum_obs = sum(obs_usage))
-  
-  # correction des densités par la disponibilité
-  MAX_N = max(dt_uses_env_grid2$n_bin,na.rm=T)
-  MAX_nobs = max(dt_uses_env_grid2$sum_obs, na.rm=T)
-  dt_uses_env_grid2$e_ij <- dt_uses_env_grid2$n_bin / MAX_N
-  dt_uses_env_grid2$e_ij[dt_uses_env_grid2$mean_proba == "NaN"] <- NA
-  dt_uses_env_grid2$o_ij <- dt_uses_env_grid2$sum_obs / MAX_nobs
-  dt_uses_env_grid2$o_ij[dt_uses_env_grid2$mean_proba == "NaN"] <- NA
-  max_oe = max(dt_uses_env_grid2$o_ij/dt_uses_env_grid2$e_ij, na.rm=T)
-  dt_uses_env_grid2$z_ij <- (dt_uses_env_grid2$o_ij / dt_uses_env_grid2$e_ij) / max_oe
-  
-  # # AVEC GEOM_RASTER
-  # # available environment
-  # Pe = dt_grid_test %>% 
-  #   ggplot(aes(cut_x, cut_y, fill=e_ij, alpha = e_ij)) +
-  #   geom_raster() +
-  #   scale_fill_distiller(palette ="Spectral")
-  # # density observation
-  # Po = dt_grid_test %>% 
-  #   ggplot(aes(cut_x, cut_y, fill=o_ij, alpha=o_ij)) +
-  #   geom_raster() +
-  #   scale_fill_distiller(palette ="Spectral")
-  # # densité obs en fonction disponibilité env
-  # Poe = dt_grid_test %>% 
-  #   ggplot(aes(cut_x, cut_y, fill=z_ij, alpha=z_ij)) +
-  #   geom_raster() +
-  #   scale_fill_distiller(palette ="Spectral")
-  
-  # avec des points (à la place de carrés)
-  xlabels <- levels(dt_uses_env_grid2$cut_x)
-  ind_remove = c(seq(2, length(xlabels)/2, 1), seq(round(length(xlabels)/2)+1, length(xlabels)-1, 1))
-  xlabels[ind_remove ] <- ""
-  
-  P1 =  dt_uses_env_grid2 %>% 
-    ggplot(aes(cut_x, cut_y, colour=e_ij)) +
-    geom_point(size=2) +
-    scale_colour_distiller(palette ="Spectral",na.value = "transparent") +
-    theme(#axis.ticks.x = element_blank(),
-      legend.position = "none") +
-    labs(x="Axe 1",y="Axe 2",  title = "Environment Availibity")+
-    theme(axis.text.x= element_text(angle = 45, hjust = 1))+
-    scale_x_discrete(labels = xlabels)+
-    scale_y_discrete(labels = xlabels)
-  
-  P2 =  dt_uses_env_grid2 %>% 
-    ggplot(aes(cut_x, cut_y, colour = ifelse(o_ij > 0 , o_ij, NA))) +
-    geom_point( size=2) +
-    scale_colour_distiller(palette ="Spectral",na.value = "transparent") +
-    theme(#axis.ticks.x = element_blank(),
-      legend.position = "none") +
-    labs(x="Axe 1",y="Axe 2",  title = "Density of Observations")+
-    theme(axis.text.x= element_text(angle = 45, hjust = 1))+
-    scale_x_discrete(labels = xlabels)+
-    scale_y_discrete(labels = xlabels)
-  
-  # bugs : z = 1 ? pour des pixels où peu d'obs + env rare
-  # quand pixel env le plus rare avec 1 seule observation de présence -> z = 1
-  
-  # z = 0 lorsque obs < 2
-  stock = dt_uses_env_grid2
-  nb_corr = length(dt_uses_env_grid2$z_ij[dt_uses_env_grid2$sum_obs < 2 & dt_uses_env_grid2$z_ij == 1])
-  cat(paste0("\nz corrigé pour ",nb_corr," cellules."))
-  dt_uses_env_grid2$z_ij[dt_uses_env_grid2$sum_obs < 2 & dt_uses_env_grid2$z_ij == 1] <- 0
-  
-  # avec des points (à la place de carrés)
-  P3 = dt_uses_env_grid2 %>% 
-    ggplot(aes(cut_x, cut_y, colour=ifelse(z_ij > 0 , z_ij, NA))) +
-    geom_point(size=2) +
-    scale_colour_distiller(palette ="Spectral",na.value = "transparent") +
-    labs(x="Axe 1",y="Axe 2",  title="Occupancy",colour = "Corrected Density\nof Observations")+
-    theme(axis.text.x= element_text(angle = 45, hjust = 1))+
-    scale_x_discrete(labels = xlabels)+
-    scale_y_discrete(labels = xlabels)
-  
-  P_all = P2 + P1 + P3+ plot_layout(nrow = 2, ncol=2) 
-  
-  png(file = paste0(chemin_esp_eco,"/occupancy_obs_",mois,".png"),width=1400, height=800)
-  plot(P_all)
-  dev.off()
-  
-  # densité condition env pour les présences observées + contour niche 
-  dt_uses_env_grid = dt_uses_env %>% mutate(
-    cut_x = cut(axe1, breaks = seq(from = limits[1], to = limits[2], length.out = 100), include.lowest = T),
-    cut_y = cut(axe2, breaks = seq(from = limits[3], to = limits[4], length.out = 100), include.lowest = T)
-  ) %>%
-    group_by(cut_x, cut_y) %>%
-    mutate(n_bin = n(),
-           mean_proba = mean(proba_presence),
-           sd_proba = sd(proba_presence))
-  grid_usage2 = grid_usage_rdata %>% filter(proba_presence >= seuil)
-  grid_usage2 = grid_usage_rdata
-  dt_uses_env_grid$obs_usage[dt_uses_env_grid$obs_usage == 0.5] <- 1
-  # New facet label names
-  supp.labs <- c("Absence", "Presence")
-  names(supp.labs) <- c(0, 1)
-  P =  dt_uses_env_grid %>% 
-    ggplot(aes(axe1, axe2, color=n_bin, alpha=n_bin)) +
-    geom_point()+
-    scale_color_distiller(palette ="Spectral")+
-    xlim(limits[1], limits[2])+
-    ylim(limits[3], limits[4])+
-    stat_contour_filled(data=grid_usage2,
-                        aes(x=axe1, y=axe2, z=proba_presence),
-                        color="black",
-                        size=0.55, bins=2,
-                        show.legend =T,
-                        alpha=0.1)+
+  min(a2$D_local)
+  max(a2$D_local)
+  # chevauchement spatialisé
+  a2 %>%
+    ggplot() +
+    geom_raster(aes(x = x, y = y, fill = D_local)) +
+    scale_fill_viridis() +
     theme(panel.background = element_rect(fill="white"),
-          panel.grid.major = element_line(colour="grey")) +
-    guides(alpha = FALSE)+
-    theme(text = element_text(size=15)) +
-    facet_grid(~ obs_usage,labeller = labeller(obs_usage = supp.labs))
+          plot.background = element_rect(fill="white"),
+          panel.grid.major = element_line(colour="grey"),
+          legend.position = "right",
+          text = element_text(size=15),
+          axis.text.x = element_text(angle=45)) +
+    labs(fill="D local", title = paste0("Schoener D ",round(DSchoener(a2$Rp_proba, a2$Pa_proba),2)),
+         x="Longitude",y="Latitude")+
+    coord_equal()
+  # G -> E
   
-  #save plot
-  png(file = paste0(chemin_esp_eco,"/niche_contour_obs_",mois,".png"),width=1400, height=800)
-  plot(P)
-  dev.off()
+  a %>%
+    ggplot() +
+    geom_raster(aes(x = x, y = y, fill = indice_test)) +
+    scale_fill_viridis(direction=-1) +
+    theme(panel.background = element_rect(fill="white"),
+          plot.background = element_rect(fill="white"),
+          panel.grid.major = element_line(colour="grey"),
+          legend.position = "right",
+          text = element_text(size=15),
+          axis.text.x = element_text(angle=45)) +
+    labs(fill="D local", title = paste0("Schoener D ",round(DSchoener(a2$Rp_proba, a2$Pa_proba),2)),
+         x="Longitude",y="Latitude")+
+    coord_equal()
   
-  # rescale occupancy
-  dt_uses_env_grid2$p <- dt_uses_env_grid2$z_ij/sum(dt_uses_env_grid2$z_ij, na.rm=T)
+  b2 <- df_PCA_glob %>% 
+    filter(Month == "June")
+  c2 <- merge(a2,b2, by=c("x","y"),all=T)
   
-  return(dt_uses_env_grid2)
+  c3 <- merge(a,b2, by=c("x","y"),all=T)
+
+  limit_sup <- 1/dim(a2)[1]
+  limit_inf <- (1/dim(a2)[1]) - 0.5
+  
+  na.omit(c3) %>%
+    ggplot() + 
+    stat_summary_hex(aes(x=PCA1, y=PCA2, z= indice_test),
+                     fun = function(x) median(x), bins=50,colour='grey')+
+    scale_fill_viridis(na.value = "transparent",direction = 1) +
+    geom_hline(yintercept = 0,linetype="dashed")+
+    geom_vline(xintercept = 0,linetype="dashed") +
+    #facet_grid(Month ~ Use, scales = "free",labeller = labeller(Use = uses.labs))+
+    labs(title = paste0("Schoener D ",round(DSchoener(a2$Rp_proba, a2$Pa_proba),2)),
+         fill = "Median\nSchoener D local")+
+    theme(text = element_text(size=18))
+  
+  na.omit(c2) %>%
+    ggplot() + 
+    stat_summary_hex(aes(x=PCA1, y=PCA2, z= exp(D_local)),
+                     fun = function(x) median(x), bins=50,colour='grey')+
+    scale_fill_viridis(na.value = "transparent",direction = 1) +
+    geom_hline(yintercept = 0,linetype="dashed")+
+    geom_vline(xintercept = 0,linetype="dashed") +
+    #facet_grid(Month ~ Use, scales = "free",labeller = labeller(Use = uses.labs))+
+    labs(title = paste0("Schoener D ",round(DSchoener(a2$Rp_proba, a2$Pa_proba),2)),
+         fill = "Median\nSchoener D local")+
+    theme(text = element_text(size=18))
+  
+  
+  # how muck k overlap j
+  mcAL_overlap <- function(j,k){sum(j*k, na.rm=T) / sum(j*j)}
+  
+  mcAL_overlap_local <- function(j,k){(j*k) / (j*j)}
+  
 }
+
+
+
+
+
+# # Fonction qui retourne un dataframe avec o_ij e_ij et z_ij pour un usage, pour un mois
+# GridObs <- function(usage,  mois,
+#                     type_donnees = "ACP_avec_ponderation", 
+#                     algorithme = "glm", fit = "2_axes"){
+#   
+#   # #TEST
+#   # usage = liste.usages[1]
+#   # mois = liste.mois[2]
+#   # type_donnees = "ACP_avec_ponderation" # "ACP_ACP" ou "ACP_avec_ponderation" ou
+#   # # "ACP_sans_ponderation" ou "brute"
+#   # fit = "2_axes" # "2_axes" ou all_simple"
+#   # algorithme = "glm"
+#   
+#   cat("\nUsage : ", usage)
+#   
+#   # Conserver les chemins
+#   chemin_esp_eco = paste0(output_path,"/niches/",type_donnees,"/",usage,"/",
+#                           fit,"/predictions_",algorithme,"/espace_eco/")
+#   chemin_pred = paste0(output_path,"/niches/",type_donnees,"/",usage,"/",
+#                        fit,"/predictions_",algorithme,"/")
+#   
+#   # import data pour dessiner contour niche
+#   load(paste0(chemin_esp_eco,"/niche_potentielle.rdata")) # load grid_usage_rdata limits seuil
+#   # import data du mois en cours
+#   dt_uses_env <- fread(paste0(chemin_pred,"/dt_probUs_condiEnv_",mois,".csv"), dec=",")
+#   names(dt_uses_env)[1:3] = c("obs_usage","proba_presence","pred_presence")
+#   # correction noms colonnes
+#   if(fit == "2_axes"){
+#     ncols = 2
+#     ind_endaxe = grep("axe2", names(dt_uses_env))
+#     ind_x = grep("x$", names(dt_uses_env))
+#     ind_y = grep("y$", names(dt_uses_env))
+#     dt_uses_env = dt_uses_env[,c(1:ind_endaxe,ind_x, ind_y), with=FALSE]
+#     names(dt_uses_env)[4:grep("axe2", names(dt_uses_env))] = paste0("axe",seq(1,ncols))
+#   }else{
+#     ncols = length(grep("axe", names(dt_uses_env)))
+#     names(dt_uses_env)[4:grep(paste0("axe",ncols), names(dt_uses_env))] = paste0("axe",seq(1,ncols))
+#   }
+#   # Filtrer entre -1 et 1
+#   dt_uses_env2 = dt_uses_env %>% 
+#     filter( axe1 >= limits[1] ) %>%
+#     filter( axe2 >= limits[3] ) %>%
+#     filter( axe1 <= limits[2] ) %>%
+#     filter( axe2 <= limits[4] ) 
+#   
+#   # Grid 100 * 100
+#   dt_uses_env_grid2 = dt_uses_env2 %>% mutate(
+#     cut_x = cut(axe1, breaks = round(seq(from = limits[1], to = limits[2], length.out = 100),2),
+#                 include.lowest = T),
+#     cut_y = cut(axe2, breaks = round(seq(from = limits[3], to = limits[4], length.out = 100),2),
+#                 include.lowest = T)
+#   ) %>%
+#     group_by(cut_x, cut_y, .drop = FALSE) %>% 
+#     summarise(n_bin = n(), 
+#               mean_proba = mean(proba_presence, na.rm=T ),
+#               sd_proba = sd(proba_presence),
+#               sum_obs = sum(obs_usage))
+#   
+#   # correction des densités par la disponibilité
+#   MAX_N = max(dt_uses_env_grid2$n_bin,na.rm=T)
+#   MAX_nobs = max(dt_uses_env_grid2$sum_obs, na.rm=T)
+#   dt_uses_env_grid2$e_ij <- dt_uses_env_grid2$n_bin / MAX_N
+#   dt_uses_env_grid2$e_ij[dt_uses_env_grid2$mean_proba == "NaN"] <- NA
+#   dt_uses_env_grid2$o_ij <- dt_uses_env_grid2$sum_obs / MAX_nobs
+#   dt_uses_env_grid2$o_ij[dt_uses_env_grid2$mean_proba == "NaN"] <- NA
+#   max_oe = max(dt_uses_env_grid2$o_ij/dt_uses_env_grid2$e_ij, na.rm=T)
+#   dt_uses_env_grid2$z_ij <- (dt_uses_env_grid2$o_ij / dt_uses_env_grid2$e_ij) / max_oe
+#   
+#   # avec des points (à la place de carrés)
+#   xlabels <- levels(dt_uses_env_grid2$cut_x)
+#   ind_remove = c(seq(2, length(xlabels)/2, 1), seq(round(length(xlabels)/2)+1, length(xlabels)-1, 1))
+#   xlabels[ind_remove ] <- ""
+#   
+#   P1 =  dt_uses_env_grid2 %>% 
+#     ggplot(aes(cut_x, cut_y, colour=e_ij)) +
+#     geom_point(size=2) +
+#     scale_colour_distiller(palette ="Spectral",na.value = "transparent") +
+#     theme(#axis.ticks.x = element_blank(),
+#       legend.position = "none") +
+#     labs(x="Axe 1",y="Axe 2",  title = "Environment Availibity")+
+#     theme(axis.text.x= element_text(angle = 45, hjust = 1))+
+#     scale_x_discrete(labels = xlabels)+
+#     scale_y_discrete(labels = xlabels)
+#   
+#   P2 =  dt_uses_env_grid2 %>% 
+#     ggplot(aes(cut_x, cut_y, colour = ifelse(o_ij > 0 , o_ij, NA))) +
+#     geom_point( size=2) +
+#     scale_colour_distiller(palette ="Spectral",na.value = "transparent") +
+#     theme(#axis.ticks.x = element_blank(),
+#       legend.position = "none") +
+#     labs(x="Axe 1",y="Axe 2",  title = "Density of Observations")+
+#     theme(axis.text.x= element_text(angle = 45, hjust = 1))+
+#     scale_x_discrete(labels = xlabels)+
+#     scale_y_discrete(labels = xlabels)
+#   
+#   # bugs : z = 1 ? pour des pixels où peu d'obs + env rare
+#   # quand pixel env le plus rare avec 1 seule observation de présence -> z = 1
+#   
+#   # z = 0 lorsque obs < 2
+#   stock = dt_uses_env_grid2
+#   nb_corr = length(dt_uses_env_grid2$z_ij[dt_uses_env_grid2$sum_obs < 2 & dt_uses_env_grid2$z_ij == 1])
+#   cat(paste0("\nz corrigé pour ",nb_corr," cellules."))
+#   dt_uses_env_grid2$z_ij[dt_uses_env_grid2$sum_obs < 2 & dt_uses_env_grid2$z_ij == 1] <- 0
+#   
+#   # avec des points (à la place de carrés)
+#   P3 = dt_uses_env_grid2 %>% 
+#     ggplot(aes(cut_x, cut_y, colour=ifelse(z_ij > 0 , z_ij, NA))) +
+#     geom_point(size=2) +
+#     scale_colour_distiller(palette ="Spectral",na.value = "transparent") +
+#     labs(x="Axe 1",y="Axe 2",  title="Occupancy",colour = "Corrected Density\nof Observations")+
+#     theme(axis.text.x= element_text(angle = 45, hjust = 1))+
+#     scale_x_discrete(labels = xlabels)+
+#     scale_y_discrete(labels = xlabels)
+#   
+#   P_all = P2 + P1 + P3+ plot_layout(nrow = 2, ncol=2) 
+#   
+#   png(file = paste0(chemin_esp_eco,"/occupancy_obs_",mois,".png"),width=1400, height=800)
+#   plot(P_all)
+#   dev.off()
+#   
+#   # densité condition env pour les présences observées + contour niche 
+#   dt_uses_env_grid = dt_uses_env %>% mutate(
+#     cut_x = cut(axe1, breaks = seq(from = limits[1], to = limits[2], length.out = 100), include.lowest = T),
+#     cut_y = cut(axe2, breaks = seq(from = limits[3], to = limits[4], length.out = 100), include.lowest = T)
+#   ) %>%
+#     group_by(cut_x, cut_y) %>%
+#     mutate(n_bin = n(),
+#            mean_proba = mean(proba_presence),
+#            sd_proba = sd(proba_presence))
+#   grid_usage2 = grid_usage_rdata %>% filter(proba_presence >= seuil)
+#   grid_usage2 = grid_usage_rdata
+#   dt_uses_env_grid$obs_usage[dt_uses_env_grid$obs_usage == 0.5] <- 1
+#   # New facet label names
+#   supp.labs <- c("Absence", "Presence")
+#   names(supp.labs) <- c(0, 1)
+#   P =  dt_uses_env_grid %>% 
+#     ggplot(aes(axe1, axe2, color=n_bin, alpha=n_bin)) +
+#     geom_point()+
+#     scale_color_distiller(palette ="Spectral")+
+#     xlim(limits[1], limits[2])+
+#     ylim(limits[3], limits[4])+
+#     stat_contour_filled(data=grid_usage2,
+#                         aes(x=axe1, y=axe2, z=proba_presence),
+#                         color="black",
+#                         size=0.55, bins=2,
+#                         show.legend =T,
+#                         alpha=0.1)+
+#     theme(panel.background = element_rect(fill="white"),
+#           panel.grid.major = element_line(colour="grey")) +
+#     guides(alpha = FALSE)+
+#     theme(text = element_text(size=15)) +
+#     facet_grid(~ obs_usage,labeller = labeller(obs_usage = supp.labs))
+#   
+#   #save plot
+#   png(file = paste0(chemin_esp_eco,"/niche_contour_obs_",mois,".png"),width=1400, height=800)
+#   plot(P)
+#   dev.off()
+#   
+#   # rescale occupancy
+#   dt_uses_env_grid2$p <- dt_uses_env_grid2$z_ij/sum(dt_uses_env_grid2$z_ij, na.rm=T)
+#   
+#   return(dt_uses_env_grid2)
+# }
 
 # # Schoener D sur occupancy à partir données observations
 # applyD_Schoener_obs <- function(liste_usages, mois){
@@ -1341,539 +1435,539 @@ GridObs <- function(usage,  mois,
 #   return(pairwise_D)
 # }
 
-# Schoener D sur occupancy à partir données observations
-applyD_Schoener_proba_pred <- function(liste_usages, 
-                                       mois,
-                                       space){
-
-  # # TEST
-  # liste_usages = sort(c("Ni","Vt")) #sort(liste.usages)
-  # mois = "juin" # NULL "juin"
-  # space = "G" # "G"
-  
-  
-  liste_usages = sort(c("Lk","Rp","Vt"))
-  mois = c("mai")
-  space="GE"
-  
-  
-  df_time <- data.frame(mois = c("mai","juin","juillet","aout","septembre"),
-             english_month = c("May","June","July","August","September")
-             )
-  english_month <- df_time$english_month[df_time$mois == mois]
-  # sortir usage nom
-  noms_us_ord <- liste_usages[order(liste_usages)]
-  
-  if(space == "G"){
-    # load raster of proba for month studied
-    list_rast <- base::list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
-                                  pattern = ".tif$", 
-                                  recursive = T, full.names = T)
-    # trier le mois
-    list_rast <- list_rast[grep(mois,list_rast)]
-    #trier les usages
-    list_rast <- list_rast[grep(paste(liste_usages, collapse="|"), list_rast)]
-    # Load rasters
-    stack_us = stack(list_rast[grep(mois,list_rast)])
-    # rename with use names
-    names(stack_us) <- unlist(lapply(noms_us_ord, function(x) paste0(x,c("_obs","_proba","_pred"))))
-    # conserve proba layer = 2nd
-    stack_proba <- stack_us %>% subset(grep("proba", names(stack_us)))
-    plot(stack_proba)
-    # transform to df
-    df_proba_us <- data.frame(data.table(stack_proba[]))
-  }
-  if(space == "GE"){
-    
-    # 1 = charger les rasters proba prédites du mois étudié
-    # 2 = 
-    
-    
-    # load raster of proba for month studied
-    list_rast <- base::list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
-                                  pattern = ".tif$", 
-                                  recursive = T, full.names = T)
-    # trier le mois
-    list_rast <- list_rast[grep(mois,list_rast)]
-    #trier les usages
-    list_rast <- list_rast[grep(paste(liste_usages, collapse="|"), list_rast)]
-    # Load rasters
-    stack_us = raster::stack(list_rast[grep(mois,list_rast)])
-    # rename with use names
-    names(stack_us) <- unlist(lapply(noms_us_ord, function(x) paste0(x,c("_obs","_proba","_pred"))))
-    # conserve proba layer = 2nd
-    stack_proba <- stack_us %>% subset(grep("proba", names(stack_us)))
-
-    # transform to df
-    df_proba_us <- data.frame(data.table(stack_proba[]))
-    
-    df_proba_us1 <- cbind(coordinates(stack_proba),df_proba_us)
-    
-    # get x/y/axe1/axe2 POUR LE MOIS ETUDIE !!!!
-    df_valenv_all <- list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
-               pattern = "dt_probUs", 
-               recursive = T, full.names = T)
-    df_valenv_all <- df_valenv_all[grep(mois,df_valenv_all)]
-    df_valenv <- as.data.frame(fread(df_valenv_all[1], dec=","))
-    ind <- c(grep("axe1",names(df_valenv)),
-             grep("axe2",names(df_valenv)),
-             grep("^x$",names(df_valenv)),
-             grep("^y$",names(df_valenv)))
-    df_valenv_sub <- df_valenv[,ind]
-    names(df_valenv_sub)[1:2] <- c("axe1","axe2")
-    
-    # Merge
-    df_proba_us_EG <- merge(df_valenv_sub, df_proba_us1)
-    # pivot
-    df_proba_us_plot <- df_proba_us_EG %>% pivot_longer(cols=ends_with("proba"),
-                                    names_to = "Use", 
-                                    values_to = "Proba")
-    
-    supp.labs <- c("Nesting","Sheep Grazing","Hiking",
-                   "Lek","Sheep Night Camping" ,"Mountain Bike")
-    names(supp.labs) <- c("Ni_proba","Pa_proba","Rp_proba",
-                          "Lk_proba","Co_proba", "Vt_proba")
-    
-    df_proba_us_plot_new <- df_proba_us_plot                              # Replicate data
-    df_proba_us_plot_new$Use <- factor(df_proba_us_plot_new$Use,      # Reordering group factor levels
-                             levels = c("Ni_proba","Pa_proba","Rp_proba",
-                                        "Lk_proba","Co_proba", "Vt_proba"))
-    # Plot map (G space)
-    map <- ggplot(data = df_proba_us_plot_new) +
-      geom_raster(aes(x = x, y = y, fill = Proba)) +
-      scale_fill_distiller(palette ="RdBu",direction=1) +
-      #theme_void() +
-      theme(panel.background = element_rect(fill="white"),
-            panel.grid.major = element_line(colour="grey"),
-            legend.position = "right") +
-      labs(fill="Probability of\noccurrence", title = english_month)+
-      facet_wrap(.~Use,labeller = labeller(Use = supp.labs),drop=F)+
-      coord_equal()+
-      theme(text = element_text(size=15))
-    
-    map2 <- ggplot(data = df_proba_us_plot_new) +
-      geom_raster(aes(x = x, y = y, fill = Proba)) +
-      scale_fill_distiller(palette ="RdBu",direction=1) +
-      #theme_void() +
-      theme(panel.background = element_rect(fill="white"),
-            panel.grid.major = element_line(colour="grey"),
-            legend.position = "right") +
-      labs(fill="Probability of\noccurrence", title = english_month)+
-      facet_wrap(.~Use,labeller = labeller(Use = supp.labs),drop=T)+
-      coord_equal()+
-      theme(text = element_text(size=15))
-    png(file = paste0(path_save,"/map_proba_G_",mois,".png"),width=1400, height=800)
-    plot(map2)
-    dev.off()
-    
-    # ggplot(data = df_proba_us_plot_new) +
-    #   geom_raster(aes(x = x, y = y, fill = Proba)) +
-    #   scale_fill_fermenter(palette ="RdBu",direction=1,breaks = seq(0,1,0.1)) +
-    #   theme(panel.background = element_rect(fill="white"),
-    #         panel.grid.major = element_line(colour="grey"),
-    #         legend.position = "right") +
-    #   labs(fill="Probability of\noccurrence")+
-    #   facet_wrap(.~Use,labeller = labeller(Use = supp.labs),drop=T)+
-    #   coord_equal()+
-    #   theme(text = element_text(size=15))
-    
-    #save plot
-    png(file = paste0(path_save,"/map2_proba_G_",mois,".png"),width=1400, height=800)
-    plot(map)
-    dev.off()
-    
-    # Plot proba de G (in E space)
-    P <- df_proba_us_plot_new %>%
-      ggplot(aes(x=axe1,y=axe2, color=Proba)) +
-      geom_point()+
-      xlim(-1,1)+
-      ylim(-1,1)+
-      labs(x="Environmental axis 1",y="Environmental axis 2",
-           color="Probability of\noccurrence", title = english_month)+
-      scale_color_distiller(palette ="RdBu",direction=1,limits=c(0,1))+
-      facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)+
-      theme(panel.background = element_rect(fill="white"),
-            panel.grid.major = element_line(colour="grey")) +
-      guides(scale = "none")+
-      theme(text = element_text(size=15)) 
-    P2 <- df_proba_us_plot_new %>%
-      ggplot(aes(x=axe1,y=axe2, color=Proba)) +
-      geom_point()+
-      xlim(-1,1)+
-      ylim(-1,1)+
-      labs(x="Environmental axis 1",y="Environmental axis 2",
-           color="Probability of\noccurrence", title = english_month)+
-      scale_color_distiller(palette ="RdBu",direction=1,limits=c(0,1))+
-      facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=T)+
-      theme(panel.background = element_rect(fill="white"),
-            panel.grid.major = element_line(colour="grey")) +
-      guides(scale = "none")+
-      theme(text = element_text(size=15)) 
-  #save plot
-  png(file = paste0(path_save,"/proba_G_in_E_",mois,".png"),width=1400, height=800)
-  plot(P)
-  dev.off()
-  png(file = paste0(path_save,"/proba2_G_in_E_",mois,".png"),width=1400, height=800)
-  plot(P2)
-  dev.off()
-  
-  # TODO : grid proba
-  
-  # Filtrer entre -1 et 1
-  dt_uses_env2 =  df_proba_us_plot_new %>% 
-    filter( axe1 >= -1 ) %>%
-    filter( axe2 >= -1 ) %>%
-    filter( axe1 <= 1 ) %>%
-    filter( axe2 <= 1 ) 
-  
-  # Grid 100 * 100
-  dt_uses_env_grid <- dt_uses_env2 %>% mutate(
-    cut_x = cut(axe1, breaks = round(seq(from = -1, to = 1, length.out = 100),2),
-                include.lowest = T),
-    cut_y = cut(axe2, breaks = round(seq(from = -1, to = 1, length.out = 100),2),
-                include.lowest = T)
-  ) %>%
-    group_by(cut_x, cut_y,Use, .drop = FALSE) %>% 
-    summarise(n_bin = n(), 
-              med = median(Proba,na.rm=T),
-              #mean = mean(Proba, na.rm=T),
-              Use=Use)
-  
-  # correction des densités par la disponibilité
-  MAX_N = max(dt_uses_env_grid$n_bin,na.rm=T)
-  dt_uses_env_grid$e_ij <- dt_uses_env_grid$n_bin / MAX_N
-  
-  brk_lbs <- c("[-1,-0.98]","(-0.52,-0.49]","(-0.01,0.01]","(0.49,0.52]","(0.98,1]")
-  
-  P1 =  dt_uses_env_grid %>% 
-    ggplot(aes(cut_x, cut_y, colour=e_ij)) +
-    geom_point(size=2) +
-    scale_colour_distiller(palette ="Spectral",na.value = "transparent") +
-    labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Environment Availabity",
-          subtitle = english_month)+
-    scale_x_discrete(labels = brk_lbs,breaks=brk_lbs)+
-    scale_y_discrete(labels = brk_lbs,breaks=brk_lbs)+
-    facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)+
-    theme(panel.background = element_rect(fill="white"),
-          panel.grid.major = element_line(colour="grey"),
-          axis.text.x= element_text(angle = 45, hjust = 1),
-          text = element_text(size=15)) +
-    guides(scale = "none")
-
-  png(file = paste0(path_save,"/available_environment_",mois,".png"),width=1400, height=800)
-  plot(P1)
-  dev.off()
-  
-  P2_sans_scale <-  dt_uses_env_grid %>% 
-    ggplot(aes(cut_x, cut_y, colour = med)) +
-    geom_point(size=2) +
-    scale_colour_distiller(palette ="RdBu",na.value = "transparent",direction=1,
-                           limits=c(0,1)) +
-    labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Median Probability Grided",
-         col = "Probability of\noccurrence",subtitle = english_month)+
-    theme(axis.text.x= element_text(angle = 45, hjust = 1),
-          panel.background = element_rect(fill="white"),
-          panel.grid.major = element_line(colour="grey"),
-          text = element_text(size=15))+
-    scale_x_discrete(labels = brk_lbs,breaks=brk_lbs)+
-    scale_y_discrete(labels = brk_lbs,breaks=brk_lbs)+
-    facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)
-  
-  P2_sans_scale_hex <- dt_uses_env2  %>% 
-    ggplot(aes(axe1,axe2,z=Proba)) + 
-    stat_summary_hex(fun = function(x) median(x), bins=75,colour='grey')+
-    scale_fill_distiller(palette ="RdBu",na.value = "transparent",direction=1,
-                          limits=c(0,1)) +
-    facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=T)+
-    labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Median Probability Grided",
-         fill = "Median probability\nof occurrence",
-         subtitle = english_month)+
-    theme(axis.text.x= element_text(angle = 45, hjust = 1),
-          panel.background = element_rect(fill="white"),
-          panel.grid.major = element_line(colour="grey"),
-          text = element_text(size=15))+
-    xlim(-1,1)+ylim(-1,1)
-
-  png(file = paste0(path_save,"/median_proba_",mois,".png"),width=1400, height=800)
-  plot(P2_sans_scale)
-  dev.off()
-
-  png(file = paste0(path_save,"/median_hex_proba_",mois,".png"),width=1400, height=800)
-  plot(P2_sans_scale_hex)
-  dev.off()
-
-  # proba med scale corrigée disponibilité milieu
-  dt_uses_env_grid <- dt_uses_env_grid %>%
-    group_by(Use) %>%
-    mutate(z_ij = (med/e_ij) / max((med/e_ij),na.rm=T))
-  
-  Pz_ij2 <-  dt_uses_env_grid %>% 
-    ggplot(aes(cut_x, cut_y, colour = z_ij)) +
-    geom_point( size=2) +
-    scale_colour_distiller(palette ="RdBu",na.value = "transparent",direction=1,
-                           limits=c(0,1)) +
-    labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Median Occupancy",
-         col = "Probability of\noccupancy",
-         subtitle = english_month)+
-    theme(axis.text.x= element_text(angle = 45, hjust = 1),
-          panel.background = element_rect(fill="white"),
-          panel.grid.major = element_line(colour="grey"),
-          text = element_text(size=15))+
-    scale_x_discrete(labels = brk_lbs,breaks=brk_lbs)+
-    scale_y_discrete(labels = brk_lbs,breaks=brk_lbs)+
-    facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)
-  
-  png(file = paste0(path_save,"/median_occupancy_",mois,".png"),width=1400, height=800)
-  plot(Pz_ij2)
-  dev.off()
-  
-  test <- dt_uses_env_grid %>% 
-    dplyr::select(Use,med, z_ij,cut_x,cut_y) %>%
-    group_by(Use,cut_x,cut_y) %>%
-    distinct() %>%
-    pivot_wider(id_cols= c(cut_x,cut_y),
-                names_from = Use, values_from = c(med,z_ij))
-  
-  df_proba_us <- list(as.data.frame(test[,grep("med",names(test))]),
-                      as.data.frame(test[,grep("z_ij",names(test))]))
-  names(df_proba_us) <- c("median","occupancy")
-
-  }
-  if(space == "E"){
-    
-    # load rdata proba for month studied
-    list_rast <- base::list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
-                                  pattern = "niche_potentielle", 
-                                  recursive = T, full.names = T)
-    list_rast <- list_rast[grep(".rdata",list_rast)]
-    # fonction load niche data for a use
-    loadProbaNiche <- function(i){
-      load(list_rast[i])
-      names(grid_usage_rdata)[3] <- paste0(names(grid_usage_rdata)[3],"_",noms_us_ord[i])
-      return(grid_usage_rdata)
-    }
-    df_proba_us <- lapply(1:length(liste_usages), loadProbaNiche)
-    # Merge
-    df_proba_us <- Reduce(function(x, y) merge(x, y, all=FALSE), df_proba_us)
-    df_proba_us <- df_proba_us %>% subset(select=-grep("axe", names(df_proba_us)))
-  }
-
-  if(space == "GE"){
-    
-    med_df_proba_us <- df_proba_us[[1]]
-    df_proba_us_scale_med <- as.data.frame(apply(med_df_proba_us,
-                                             2,
-                                             function(x) x/sum(x, na.rm=T)))
-    occ_df_proba_us <- df_proba_us[[2]]
-    df_proba_us_scale_occ <- as.data.frame(apply(occ_df_proba_us,
-                                             2,
-                                             function(x) x/sum(x, na.rm=T)))
-    
-    pairwise_D_med <- matrix(nrow = length(liste_usages), ncol = length(liste_usages), 
-                         dimnames = list(liste_usages,liste_usages))
-    pairwise_D_occ <- matrix(nrow = length(liste_usages), ncol = length(liste_usages), 
-                             dimnames = list(liste_usages,liste_usages))
-    for(u1 in 1:length(liste_usages)){
-      for(u2 in 1:length(liste_usages)){
-        pairwise_D_med[u1,u2]  <- DSchoener(df_proba_us_scale_med[,u1], df_proba_us_scale_med[,u2])
-        pairwise_D_occ[u1,u2]  <- DSchoener(df_proba_us_scale_occ[,u1], df_proba_us_scale_occ[,u2])
-      }
-    }
-    pairwise_D <- list(pairwise_D_med,pairwise_D_occ)
-    names(pairwise_D) <- c("median","occupancy")
-    
-  }else{
-    # rescale chaque proba (pour que ça fasse une distrib de proba => sum = 1)
-    df_proba_us_scale <- as.data.frame(apply(df_proba_us,
-                                             2,
-                                             function(x) x/sum(x, na.rm=T)))
-    # Schoener D pairwise computation matrix
-    pairwise_D <- matrix(nrow = length(liste_usages), ncol = length(liste_usages), 
-                         dimnames = list(liste_usages,liste_usages) )
-    for(u1 in 1:length(liste_usages)){
-      for(u2 in 1:length(liste_usages)){
-        pairwise_D[u1,u2]  <- DSchoener(df_proba_us_scale[,u1], df_proba_us_scale[,u2])
-      }
-    }
-  }
-  return(pairwise_D)
-}
-
-
-
-schoenerD.stats <- function(fonction_applyschoener, chemin_save){
-  # TEST
-  fonction_applyschoener = "E_proba_filter" # "G_proba" "E_proba" "E_proba_filter
-  chemin_save = path_save
-  
-  if(fonction_applyschoener == "G_proba"){
-    
-    # # Colloque Cohabitation #####
-    # D <- lapply(c("juin","juillet","aout","septembre"), function(x) 
-    #   applyD_Schoener_proba_pred(liste_usages = sort(c("Ni","Vt")), mois = x,
-    #                              space="G"))
-    # D_summer2 <- lapply(1:length(D), function(x) {
-    #   M <- D[[x]]
-    #   M[upper.tri(M)] <- NA
-    #   return(M)})
-    # names(D_summer2) <- c("juin","juillet","aout","septembre")
-    # # save matrices
-    # save(D_summer2,
-    #      file = paste0(chemin_save,"/matrices_schoener_d_median.rdata"))
-    # # save in csv
-    # for(i in 1:length(D_summer2)){
-    #   write.csv(D_summer2[i], 
-    #             paste0(chemin_save,"/matrice_schoener_d_median_",names(D_summer2)[i],".csv"))
-    # }
-    # # mean + sd throught summer
-    # M_mean_sd <- meansd4listMatrices(D, sort(c("Ni","Vt")))
-    # M = matrix(paste0(round(M_mean_sd$mean, 2), " (", 
-    #                   round(M_mean_sd$sd, 2), ")"),
-    #            2,2,
-    #            dimnames = list(sort(c("Ni","Vt")),sort(c("Ni","Vt"))))
-    # M[upper.tri(M)] <- NA
-    # diag(M) <- 1
-    # df_mean_sd_D_obs = as.data.frame(M)
-    # df_mean_sd_D_obs
-    # write.csv(df_mean_sd_D_obs, 
-    #           paste0(chemin_save,"/mat_schoener_d_mean_sd_summer_median.csv"))
-    # # Colloque Cohabitation #####
-    
-    
-    # en mai : que 3 usages
-    D_mai <- applyD_Schoener_proba_pred(liste_usages = sort(c("Lk","Rp","Vt")), mois = c("mai"),space="G")
-    # en juin : tous les usages
-    D_juin <- applyD_Schoener_proba_pred(liste_usages = liste.usages, mois = c("juin"),space="G")
-    # de juillet à septembre : les 5 mêmes usages
-    D_jui_ao_sep <- lapply(c("juillet","aout","septembre"), function(x) 
-      applyD_Schoener_proba_pred(liste_usages = sort(c("Ni","Pa","Rp","Co","Vt")), mois = x,space="G"))
-  }
-  if(fonction_applyschoener == "E_obs"){
-
-    # Appliquer fonction en fonction des usages en présence
-    # ! nécessite de le savoir en amont ...
-    # en mai : que 3 usages
-    D_mai <- applyD_Schoener_obs(liste_usages = sort(c("Lk","Rp","Vt")), mois = c("mai"))
-    # en juin : tous les usages
-    D_juin <- applyD_Schoener_obs(liste_usages = sort(liste.usages), mois = c("juin"))
-    # de juillet à septembre : les 5 mêmes usages
-    D_jui_ao_sep <- lapply(c("juillet","aout","septembre"), function(x) 
-      applyD_Schoener_obs(liste_usages = sort(c("Ni","Pa","Rp","Co","Vt")), mois = x) )
-  }
-  # pas de mean ni sd car niches construites sur aggrégation mois
-  if(fonction_applyschoener == "E_proba"){
-      D = applyD_Schoener_proba_pred(liste_usages = liste.usages, mois=NULL, space= "E")
-      D[upper.tri(D)] <- NA
-      diag(D) <- 1
-      df_D = as.data.frame(D)
-      write.csv(df_D, 
-                paste0(chemin_save,"/mat_schoener_d_summer.csv"))
-  }
-
-  if(fonction_applyschoener == "E_proba_filter"){
-    
-    # # Colloque Cohabitation #####
-    # D <- lapply(c("juin","juillet","aout","septembre"), function(x) 
-    #   applyD_Schoener_proba_pred(liste_usages = sort(c("Ni","Vt")), mois = x,
-    #                              space="GE") )
-    # D_summer_med <- list(D[[1]]$median,D[[2]]$median,D[[3]]$median,D[[4]]$median)
-    # D_summer2 <- lapply(1:length(D_summer_med), function(x) {
-    #   M <- D_summer_med[[x]]
-    #   M[upper.tri(M)] <- NA
-    #   return(M)})
-    # names(D_summer2) <- c("juin","juillet","aout","septembre")
-    # 
-    # # save matrices
-    # save(D_summer2,
-    #      file = paste0(chemin_save,"/matrices_schoener_d_median.rdata"))
-    # # save in csv
-    # for(i in 1:length(D_summer2)){
-    #   write.csv(D_summer2[i], 
-    #             paste0(chemin_save,"/matrice_schoener_d_median_",names(D_summer2)[i],".csv"))
-    # }
-    # # mean + sd throught summer
-    # M_mean_sd <- meansd4listMatrices(D_summer_med, sort(c("Ni","Vt")))
-    # M = matrix(paste0(round(M_mean_sd$mean, 2), " (", 
-    #                   round(M_mean_sd$sd, 2), ")"),
-    #            2,2,
-    #            dimnames = list(sort(c("Ni","Vt")),sort(c("Ni","Vt"))))
-    # M[upper.tri(M)] <- NA
-    # diag(M) <- 1
-    # df_mean_sd_D_obs = as.data.frame(M)
-    # df_mean_sd_D_obs
-    # write.csv(df_mean_sd_D_obs, 
-    #           paste0(chemin_save,"/mat_schoener_d_mean_sd_summer_median.csv"))
-    # # Colloque Cohabitation #####
-
-    D_mai <- applyD_Schoener_proba_pred(liste_usages = sort(c("Lk","Rp","Vt")), mois = c("mai"),
-                                        space="GE")
-    D_juin <- applyD_Schoener_proba_pred(liste_usages = sort(liste.usages), mois = c("juin"),
-                                         space="GE")
-    D_jui_ao_sep <- lapply(c("juillet","aout","septembre"), function(x) 
-      applyD_Schoener_proba_pred(liste_usages = sort(c("Ni","Pa","Rp","Co","Vt")), mois = x,
-                                 space="GE") )
-
-    D_summer_med <- list(D_mai$median, D_juin$median,
-                           D_jui_ao_sep[[1]]$median,D_jui_ao_sep[[2]]$median,D_jui_ao_sep[[3]]$median
-                           )
-    D_summer_occ <- list(D_mai$occupancy, D_juin$occupancy,
-                           D_jui_ao_sep[[1]]$occupancy,D_jui_ao_sep[[2]]$occupancy,D_jui_ao_sep[[3]]$occupancy)
-  }
-  
-  saveMatrixSchoener <- function(matrix_M,name_save){
-    # matrix_M et une liste de matrices
-    
-    # Combler les vides quand absence usage pendant un mois
-    a <- unlist(lapply(1:length(matrix_M ), function(x) dim(matrix_M[[x]])[1]))
-    higher_M <- matrix_M[[which.max(a)]]
-    D_summer2 <- lapply(1:length(matrix_M), 
-                        function(x) MatchMatrixDims(biggest_mat = higher_M, 
-                                                    mat_to_expand =  matrix_M[[x]]))
-    # remove upper triangle
-    D_summer2 <- lapply(1:length(D_summer2), function(x) {
-      M <- D_summer2[[x]]
-      M[upper.tri(M)] <- NA
-      return(M)})
-    names(D_summer2) <- liste.mois
-    
-    # save matrices
-    save(D_summer2,
-         file = paste0(chemin_save,"/matrices_schoener_d_",name_save,".rdata"))
-    # save in csv
-    for(i in 1:length(D_summer2)){
-      write.csv(D_summer2[i], 
-                paste0(chemin_save,"/matrice_schoener_d_",name_save,"_",names(D_summer2)[i],".csv"))
-    }
-    # mean + sd throught summer
-    M_mean_sd <- meansd4listMatrices(D_summer2, sort(liste.usages))
-    for(i in 1:length(M_mean_sd)){
-      write.csv(M_mean_sd[i], 
-                paste0(chemin_save,"/schoener_d_",name_save,"_",names(M_mean_sd)[i],".csv"))
-    }
-    M = matrix(paste0(round(M_mean_sd$mean, 2), " (", 
-                      round(M_mean_sd$sd, 2), ")"),
-               6,6,
-               dimnames = list(sort(liste.usages),sort(liste.usages)))
-    M[upper.tri(M)] <- NA
-    diag(M) <- 1
-    df_mean_sd_D_obs = as.data.frame(M)
-    df_mean_sd_D_obs
-    write.csv(df_mean_sd_D_obs, 
-              paste0(chemin_save,"/mat_schoener_d_mean_sd_summer_",name_save,".csv"))
-    
-  }
-  
-  # quand D schoener mensuel, calcul mean + sd
-  if(any(fonction_applyschoener == "E_obs" | fonction_applyschoener == "G_proba")){
-    # Rassembler les matrices au cours de l'été
-    D_summer <- append(list(D_mai, D_juin), D_jui_ao_sep)
-    saveMatrixSchoener(D_summer,"_")
-  }
-  if(fonction_applyschoener == "E_proba_filter"){
-    saveMatrixSchoener(D_summer_med,"median")
-    saveMatrixSchoener(D_summer_occ,"occupancy")
-  }
-}
+# # Schoener D sur occupancy à partir données observations
+# applyD_Schoener_proba_pred <- function(liste_usages, 
+#                                        mois,
+#                                        space){
+# 
+#   # # TEST
+#   # liste_usages = sort(c("Ni","Vt")) #sort(liste.usages)
+#   # mois = "juin" # NULL "juin"
+#   # space = "G" # "G"
+#   
+#   
+#   # liste_usages = sort(c("Lk","Rp","Vt"))
+#   # mois = c("mai")
+#   # space="GE"
+#   
+#   
+#   df_time <- data.frame(mois = c("mai","juin","juillet","aout","septembre"),
+#              english_month = c("May","June","July","August","September")
+#              )
+#   english_month <- df_time$english_month[df_time$mois == mois]
+#   # sortir usage nom
+#   noms_us_ord <- liste_usages[order(liste_usages)]
+#   
+#   if(space == "G"){
+#     # load raster of proba for month studied
+#     list_rast <- base::list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
+#                                   pattern = ".tif$", 
+#                                   recursive = T, full.names = T)
+#     # trier le mois
+#     list_rast <- list_rast[grep(mois,list_rast)]
+#     #trier les usages
+#     list_rast <- list_rast[grep(paste(liste_usages, collapse="|"), list_rast)]
+#     # Load rasters
+#     stack_us = stack(list_rast[grep(mois,list_rast)])
+#     # rename with use names
+#     names(stack_us) <- unlist(lapply(noms_us_ord, function(x) paste0(x,c("_obs","_proba","_pred"))))
+#     # conserve proba layer = 2nd
+#     stack_proba <- stack_us %>% subset(grep("proba", names(stack_us)))
+#     plot(stack_proba)
+#     # transform to df
+#     df_proba_us <- data.frame(data.table(stack_proba[]))
+#   }
+#   if(space == "GE"){
+#     
+#     # 1 = charger les rasters proba prédites du mois étudié
+#     # 2 = 
+#     
+#     
+#     # load raster of proba for month studied
+#     list_rast <- base::list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
+#                                   pattern = ".tif$", 
+#                                   recursive = T, full.names = T)
+#     # trier le mois
+#     list_rast <- list_rast[grep(mois,list_rast)]
+#     #trier les usages
+#     list_rast <- list_rast[grep(paste(liste_usages, collapse="|"), list_rast)]
+#     # Load rasters
+#     stack_us = raster::stack(list_rast[grep(mois,list_rast)])
+#     # rename with use names
+#     names(stack_us) <- unlist(lapply(noms_us_ord, function(x) paste0(x,c("_obs","_proba","_pred"))))
+#     # conserve proba layer = 2nd
+#     stack_proba <- stack_us %>% subset(grep("proba", names(stack_us)))
+# 
+#     # transform to df
+#     df_proba_us <- data.frame(data.table(stack_proba[]))
+#     
+#     df_proba_us1 <- cbind(coordinates(stack_proba),df_proba_us)
+#     
+#     # get x/y/axe1/axe2 POUR LE MOIS ETUDIE !!!!
+#     df_valenv_all <- list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
+#                pattern = "dt_probUs", 
+#                recursive = T, full.names = T)
+#     df_valenv_all <- df_valenv_all[grep(mois,df_valenv_all)]
+#     df_valenv <- as.data.frame(fread(df_valenv_all[1], dec=","))
+#     ind <- c(grep("axe1",names(df_valenv)),
+#              grep("axe2",names(df_valenv)),
+#              grep("^x$",names(df_valenv)),
+#              grep("^y$",names(df_valenv)))
+#     df_valenv_sub <- df_valenv[,ind]
+#     names(df_valenv_sub)[1:2] <- c("axe1","axe2")
+#     
+#     # Merge
+#     df_proba_us_EG <- merge(df_valenv_sub, df_proba_us1)
+#     # pivot
+#     df_proba_us_plot <- df_proba_us_EG %>% pivot_longer(cols=ends_with("proba"),
+#                                     names_to = "Use", 
+#                                     values_to = "Proba")
+#     
+#     supp.labs <- c("Nesting","Sheep Grazing","Hiking",
+#                    "Lek","Sheep Night Camping" ,"Mountain Bike")
+#     names(supp.labs) <- c("Ni_proba","Pa_proba","Rp_proba",
+#                           "Lk_proba","Co_proba", "Vt_proba")
+#     
+#     df_proba_us_plot_new <- df_proba_us_plot                              # Replicate data
+#     df_proba_us_plot_new$Use <- factor(df_proba_us_plot_new$Use,      # Reordering group factor levels
+#                              levels = c("Ni_proba","Pa_proba","Rp_proba",
+#                                         "Lk_proba","Co_proba", "Vt_proba"))
+#     # Plot map (G space)
+#     map <- ggplot(data = df_proba_us_plot_new) +
+#       geom_raster(aes(x = x, y = y, fill = Proba)) +
+#       scale_fill_distiller(palette ="RdBu",direction=1) +
+#       #theme_void() +
+#       theme(panel.background = element_rect(fill="white"),
+#             panel.grid.major = element_line(colour="grey"),
+#             legend.position = "right") +
+#       labs(fill="Probability of\noccurrence", title = english_month)+
+#       facet_wrap(.~Use,labeller = labeller(Use = supp.labs),drop=F)+
+#       coord_equal()+
+#       theme(text = element_text(size=15))
+#     
+#     map2 <- ggplot(data = df_proba_us_plot_new) +
+#       geom_raster(aes(x = x, y = y, fill = Proba)) +
+#       scale_fill_distiller(palette ="RdBu",direction=1) +
+#       #theme_void() +
+#       theme(panel.background = element_rect(fill="white"),
+#             panel.grid.major = element_line(colour="grey"),
+#             legend.position = "right") +
+#       labs(fill="Probability of\noccurrence", title = english_month)+
+#       facet_wrap(.~Use,labeller = labeller(Use = supp.labs),drop=T)+
+#       coord_equal()+
+#       theme(text = element_text(size=15))
+#     png(file = paste0(path_save,"/map_proba_G_",mois,".png"),width=1400, height=800)
+#     plot(map2)
+#     dev.off()
+#     
+#     # ggplot(data = df_proba_us_plot_new) +
+#     #   geom_raster(aes(x = x, y = y, fill = Proba)) +
+#     #   scale_fill_fermenter(palette ="RdBu",direction=1,breaks = seq(0,1,0.1)) +
+#     #   theme(panel.background = element_rect(fill="white"),
+#     #         panel.grid.major = element_line(colour="grey"),
+#     #         legend.position = "right") +
+#     #   labs(fill="Probability of\noccurrence")+
+#     #   facet_wrap(.~Use,labeller = labeller(Use = supp.labs),drop=T)+
+#     #   coord_equal()+
+#     #   theme(text = element_text(size=15))
+#     
+#     #save plot
+#     png(file = paste0(path_save,"/map2_proba_G_",mois,".png"),width=1400, height=800)
+#     plot(map)
+#     dev.off()
+#     
+#     # Plot proba de G (in E space)
+#     P <- df_proba_us_plot_new %>%
+#       ggplot(aes(x=axe1,y=axe2, color=Proba)) +
+#       geom_point()+
+#       xlim(-1,1)+
+#       ylim(-1,1)+
+#       labs(x="Environmental axis 1",y="Environmental axis 2",
+#            color="Probability of\noccurrence", title = english_month)+
+#       scale_color_distiller(palette ="RdBu",direction=1,limits=c(0,1))+
+#       facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)+
+#       theme(panel.background = element_rect(fill="white"),
+#             panel.grid.major = element_line(colour="grey")) +
+#       guides(scale = "none")+
+#       theme(text = element_text(size=15)) 
+#     P2 <- df_proba_us_plot_new %>%
+#       ggplot(aes(x=axe1,y=axe2, color=Proba)) +
+#       geom_point()+
+#       xlim(-1,1)+
+#       ylim(-1,1)+
+#       labs(x="Environmental axis 1",y="Environmental axis 2",
+#            color="Probability of\noccurrence", title = english_month)+
+#       scale_color_distiller(palette ="RdBu",direction=1,limits=c(0,1))+
+#       facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=T)+
+#       theme(panel.background = element_rect(fill="white"),
+#             panel.grid.major = element_line(colour="grey")) +
+#       guides(scale = "none")+
+#       theme(text = element_text(size=15)) 
+#   #save plot
+#   png(file = paste0(path_save,"/proba_G_in_E_",mois,".png"),width=1400, height=800)
+#   plot(P)
+#   dev.off()
+#   png(file = paste0(path_save,"/proba2_G_in_E_",mois,".png"),width=1400, height=800)
+#   plot(P2)
+#   dev.off()
+#   
+#   # TODO : grid proba
+#   
+#   # Filtrer entre -1 et 1
+#   dt_uses_env2 =  df_proba_us_plot_new %>% 
+#     filter( axe1 >= -1 ) %>%
+#     filter( axe2 >= -1 ) %>%
+#     filter( axe1 <= 1 ) %>%
+#     filter( axe2 <= 1 ) 
+#   
+#   # Grid 100 * 100
+#   dt_uses_env_grid <- dt_uses_env2 %>% mutate(
+#     cut_x = cut(axe1, breaks = round(seq(from = -1, to = 1, length.out = 100),2),
+#                 include.lowest = T),
+#     cut_y = cut(axe2, breaks = round(seq(from = -1, to = 1, length.out = 100),2),
+#                 include.lowest = T)
+#   ) %>%
+#     group_by(cut_x, cut_y,Use, .drop = FALSE) %>% 
+#     summarise(n_bin = n(), 
+#               med = median(Proba,na.rm=T),
+#               #mean = mean(Proba, na.rm=T),
+#               Use=Use)
+#   
+#   # correction des densités par la disponibilité
+#   MAX_N = max(dt_uses_env_grid$n_bin,na.rm=T)
+#   dt_uses_env_grid$e_ij <- dt_uses_env_grid$n_bin / MAX_N
+#   
+#   brk_lbs <- c("[-1,-0.98]","(-0.52,-0.49]","(-0.01,0.01]","(0.49,0.52]","(0.98,1]")
+#   
+#   P1 =  dt_uses_env_grid %>% 
+#     ggplot(aes(cut_x, cut_y, colour=e_ij)) +
+#     geom_point(size=2) +
+#     scale_colour_distiller(palette ="Spectral",na.value = "transparent") +
+#     labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Environment Availabity",
+#           subtitle = english_month)+
+#     scale_x_discrete(labels = brk_lbs,breaks=brk_lbs)+
+#     scale_y_discrete(labels = brk_lbs,breaks=brk_lbs)+
+#     facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)+
+#     theme(panel.background = element_rect(fill="white"),
+#           panel.grid.major = element_line(colour="grey"),
+#           axis.text.x= element_text(angle = 45, hjust = 1),
+#           text = element_text(size=15)) +
+#     guides(scale = "none")
+# 
+#   png(file = paste0(path_save,"/available_environment_",mois,".png"),width=1400, height=800)
+#   plot(P1)
+#   dev.off()
+#   
+#   P2_sans_scale <-  dt_uses_env_grid %>% 
+#     ggplot(aes(cut_x, cut_y, colour = med)) +
+#     geom_point(size=2) +
+#     scale_colour_distiller(palette ="RdBu",na.value = "transparent",direction=1,
+#                            limits=c(0,1)) +
+#     labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Median Probability Grided",
+#          col = "Probability of\noccurrence",subtitle = english_month)+
+#     theme(axis.text.x= element_text(angle = 45, hjust = 1),
+#           panel.background = element_rect(fill="white"),
+#           panel.grid.major = element_line(colour="grey"),
+#           text = element_text(size=15))+
+#     scale_x_discrete(labels = brk_lbs,breaks=brk_lbs)+
+#     scale_y_discrete(labels = brk_lbs,breaks=brk_lbs)+
+#     facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)
+#   
+#   P2_sans_scale_hex <- dt_uses_env2  %>% 
+#     ggplot(aes(axe1,axe2,z=Proba)) + 
+#     stat_summary_hex(fun = function(x) median(x), bins=75,colour='grey')+
+#     scale_fill_distiller(palette ="RdBu",na.value = "transparent",direction=1,
+#                           limits=c(0,1)) +
+#     facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=T)+
+#     labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Median Probability Grided",
+#          fill = "Median probability\nof occurrence",
+#          subtitle = english_month)+
+#     theme(axis.text.x= element_text(angle = 45, hjust = 1),
+#           panel.background = element_rect(fill="white"),
+#           panel.grid.major = element_line(colour="grey"),
+#           text = element_text(size=15))+
+#     xlim(-1,1)+ylim(-1,1)
+# 
+#   png(file = paste0(path_save,"/median_proba_",mois,".png"),width=1400, height=800)
+#   plot(P2_sans_scale)
+#   dev.off()
+# 
+#   png(file = paste0(path_save,"/median_hex_proba_",mois,".png"),width=1400, height=800)
+#   plot(P2_sans_scale_hex)
+#   dev.off()
+# 
+#   # proba med scale corrigée disponibilité milieu
+#   dt_uses_env_grid <- dt_uses_env_grid %>%
+#     group_by(Use) %>%
+#     mutate(z_ij = (med/e_ij) / max((med/e_ij),na.rm=T))
+#   
+#   Pz_ij2 <-  dt_uses_env_grid %>% 
+#     ggplot(aes(cut_x, cut_y, colour = z_ij)) +
+#     geom_point( size=2) +
+#     scale_colour_distiller(palette ="RdBu",na.value = "transparent",direction=1,
+#                            limits=c(0,1)) +
+#     labs(x="Environmental axis 1",y="Environmental axis 2",  title = "Median Occupancy",
+#          col = "Probability of\noccupancy",
+#          subtitle = english_month)+
+#     theme(axis.text.x= element_text(angle = 45, hjust = 1),
+#           panel.background = element_rect(fill="white"),
+#           panel.grid.major = element_line(colour="grey"),
+#           text = element_text(size=15))+
+#     scale_x_discrete(labels = brk_lbs,breaks=brk_lbs)+
+#     scale_y_discrete(labels = brk_lbs,breaks=brk_lbs)+
+#     facet_wrap(.~ Use,labeller = labeller(Use = supp.labs),drop=F)
+#   
+#   png(file = paste0(path_save,"/median_occupancy_",mois,".png"),width=1400, height=800)
+#   plot(Pz_ij2)
+#   dev.off()
+#   
+#   test <- dt_uses_env_grid %>% 
+#     dplyr::select(Use,med, z_ij,cut_x,cut_y) %>%
+#     group_by(Use,cut_x,cut_y) %>%
+#     distinct() %>%
+#     pivot_wider(id_cols= c(cut_x,cut_y),
+#                 names_from = Use, values_from = c(med,z_ij))
+#   
+#   df_proba_us <- list(as.data.frame(test[,grep("med",names(test))]),
+#                       as.data.frame(test[,grep("z_ij",names(test))]))
+#   names(df_proba_us) <- c("median","occupancy")
+# 
+#   }
+#   if(space == "E"){
+#     
+#     # load rdata proba for month studied
+#     list_rast <- base::list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
+#                                   pattern = "niche_potentielle", 
+#                                   recursive = T, full.names = T)
+#     list_rast <- list_rast[grep(".rdata",list_rast)]
+#     # fonction load niche data for a use
+#     loadProbaNiche <- function(i){
+#       load(list_rast[i])
+#       names(grid_usage_rdata)[3] <- paste0(names(grid_usage_rdata)[3],"_",noms_us_ord[i])
+#       return(grid_usage_rdata)
+#     }
+#     df_proba_us <- lapply(1:length(liste_usages), loadProbaNiche)
+#     # Merge
+#     df_proba_us <- Reduce(function(x, y) merge(x, y, all=FALSE), df_proba_us)
+#     df_proba_us <- df_proba_us %>% subset(select=-grep("axe", names(df_proba_us)))
+#   }
+# 
+#   if(space == "GE"){
+#     
+#     med_df_proba_us <- df_proba_us[[1]]
+#     df_proba_us_scale_med <- as.data.frame(apply(med_df_proba_us,
+#                                              2,
+#                                              function(x) x/sum(x, na.rm=T)))
+#     occ_df_proba_us <- df_proba_us[[2]]
+#     df_proba_us_scale_occ <- as.data.frame(apply(occ_df_proba_us,
+#                                              2,
+#                                              function(x) x/sum(x, na.rm=T)))
+#     
+#     pairwise_D_med <- matrix(nrow = length(liste_usages), ncol = length(liste_usages), 
+#                          dimnames = list(liste_usages,liste_usages))
+#     pairwise_D_occ <- matrix(nrow = length(liste_usages), ncol = length(liste_usages), 
+#                              dimnames = list(liste_usages,liste_usages))
+#     for(u1 in 1:length(liste_usages)){
+#       for(u2 in 1:length(liste_usages)){
+#         pairwise_D_med[u1,u2]  <- DSchoener(df_proba_us_scale_med[,u1], df_proba_us_scale_med[,u2])
+#         pairwise_D_occ[u1,u2]  <- DSchoener(df_proba_us_scale_occ[,u1], df_proba_us_scale_occ[,u2])
+#       }
+#     }
+#     pairwise_D <- list(pairwise_D_med,pairwise_D_occ)
+#     names(pairwise_D) <- c("median","occupancy")
+#     
+#   }else{
+#     # rescale chaque proba (pour que ça fasse une distrib de proba => sum = 1)
+#     df_proba_us_scale <- as.data.frame(apply(df_proba_us,
+#                                              2,
+#                                              function(x) x/sum(x, na.rm=T)))
+#     # Schoener D pairwise computation matrix
+#     pairwise_D <- matrix(nrow = length(liste_usages), ncol = length(liste_usages), 
+#                          dimnames = list(liste_usages,liste_usages) )
+#     for(u1 in 1:length(liste_usages)){
+#       for(u2 in 1:length(liste_usages)){
+#         pairwise_D[u1,u2]  <- DSchoener(df_proba_us_scale[,u1], df_proba_us_scale[,u2])
+#       }
+#     }
+#   }
+#   return(pairwise_D)
+# }
+# 
+# 
+# 
+# schoenerD.stats <- function(fonction_applyschoener, chemin_save){
+#   # # TEST
+#   # fonction_applyschoener = "E_proba_filter" # "G_proba" "E_proba" "E_proba_filter
+#   # chemin_save = path_save
+#   
+#   if(fonction_applyschoener == "G_proba"){
+#     
+#     # # Colloque Cohabitation ###
+#     # D <- lapply(c("juin","juillet","aout","septembre"), function(x) 
+#     #   applyD_Schoener_proba_pred(liste_usages = sort(c("Ni","Vt")), mois = x,
+#     #                              space="G"))
+#     # D_summer2 <- lapply(1:length(D), function(x) {
+#     #   M <- D[[x]]
+#     #   M[upper.tri(M)] <- NA
+#     #   return(M)})
+#     # names(D_summer2) <- c("juin","juillet","aout","septembre")
+#     # # save matrices
+#     # save(D_summer2,
+#     #      file = paste0(chemin_save,"/matrices_schoener_d_median.rdata"))
+#     # # save in csv
+#     # for(i in 1:length(D_summer2)){
+#     #   write.csv(D_summer2[i], 
+#     #             paste0(chemin_save,"/matrice_schoener_d_median_",names(D_summer2)[i],".csv"))
+#     # }
+#     # # mean + sd throught summer
+#     # M_mean_sd <- meansd4listMatrices(D, sort(c("Ni","Vt")))
+#     # M = matrix(paste0(round(M_mean_sd$mean, 2), " (", 
+#     #                   round(M_mean_sd$sd, 2), ")"),
+#     #            2,2,
+#     #            dimnames = list(sort(c("Ni","Vt")),sort(c("Ni","Vt"))))
+#     # M[upper.tri(M)] <- NA
+#     # diag(M) <- 1
+#     # df_mean_sd_D_obs = as.data.frame(M)
+#     # df_mean_sd_D_obs
+#     # write.csv(df_mean_sd_D_obs, 
+#     #           paste0(chemin_save,"/mat_schoener_d_mean_sd_summer_median.csv"))
+#     # # Colloque Cohabitation ###
+#     
+#     
+#     # en mai : que 3 usages
+#     D_mai <- applyD_Schoener_proba_pred(liste_usages = sort(c("Lk","Rp","Vt")), mois = c("mai"),space="G")
+#     # en juin : tous les usages
+#     D_juin <- applyD_Schoener_proba_pred(liste_usages = liste.usages, mois = c("juin"),space="G")
+#     # de juillet à septembre : les 5 mêmes usages
+#     D_jui_ao_sep <- lapply(c("juillet","aout","septembre"), function(x) 
+#       applyD_Schoener_proba_pred(liste_usages = sort(c("Ni","Pa","Rp","Co","Vt")), mois = x,space="G"))
+#   }
+#   if(fonction_applyschoener == "E_obs"){
+# 
+#     # Appliquer fonction en fonction des usages en présence
+#     # ! nécessite de le savoir en amont ...
+#     # en mai : que 3 usages
+#     D_mai <- applyD_Schoener_obs(liste_usages = sort(c("Lk","Rp","Vt")), mois = c("mai"))
+#     # en juin : tous les usages
+#     D_juin <- applyD_Schoener_obs(liste_usages = sort(liste.usages), mois = c("juin"))
+#     # de juillet à septembre : les 5 mêmes usages
+#     D_jui_ao_sep <- lapply(c("juillet","aout","septembre"), function(x) 
+#       applyD_Schoener_obs(liste_usages = sort(c("Ni","Pa","Rp","Co","Vt")), mois = x) )
+#   }
+#   # pas de mean ni sd car niches construites sur aggrégation mois
+#   if(fonction_applyschoener == "E_proba"){
+#       D = applyD_Schoener_proba_pred(liste_usages = liste.usages, mois=NULL, space= "E")
+#       D[upper.tri(D)] <- NA
+#       diag(D) <- 1
+#       df_D = as.data.frame(D)
+#       write.csv(df_D, 
+#                 paste0(chemin_save,"/mat_schoener_d_summer.csv"))
+#   }
+# 
+#   if(fonction_applyschoener == "E_proba_filter"){
+#     
+#     # # Colloque Cohabitation ###
+#     # D <- lapply(c("juin","juillet","aout","septembre"), function(x) 
+#     #   applyD_Schoener_proba_pred(liste_usages = sort(c("Ni","Vt")), mois = x,
+#     #                              space="GE") )
+#     # D_summer_med <- list(D[[1]]$median,D[[2]]$median,D[[3]]$median,D[[4]]$median)
+#     # D_summer2 <- lapply(1:length(D_summer_med), function(x) {
+#     #   M <- D_summer_med[[x]]
+#     #   M[upper.tri(M)] <- NA
+#     #   return(M)})
+#     # names(D_summer2) <- c("juin","juillet","aout","septembre")
+#     # 
+#     # # save matrices
+#     # save(D_summer2,
+#     #      file = paste0(chemin_save,"/matrices_schoener_d_median.rdata"))
+#     # # save in csv
+#     # for(i in 1:length(D_summer2)){
+#     #   write.csv(D_summer2[i], 
+#     #             paste0(chemin_save,"/matrice_schoener_d_median_",names(D_summer2)[i],".csv"))
+#     # }
+#     # # mean + sd throught summer
+#     # M_mean_sd <- meansd4listMatrices(D_summer_med, sort(c("Ni","Vt")))
+#     # M = matrix(paste0(round(M_mean_sd$mean, 2), " (", 
+#     #                   round(M_mean_sd$sd, 2), ")"),
+#     #            2,2,
+#     #            dimnames = list(sort(c("Ni","Vt")),sort(c("Ni","Vt"))))
+#     # M[upper.tri(M)] <- NA
+#     # diag(M) <- 1
+#     # df_mean_sd_D_obs = as.data.frame(M)
+#     # df_mean_sd_D_obs
+#     # write.csv(df_mean_sd_D_obs, 
+#     #           paste0(chemin_save,"/mat_schoener_d_mean_sd_summer_median.csv"))
+#     # # Colloque Cohabitation ###
+# 
+#     D_mai <- applyD_Schoener_proba_pred(liste_usages = sort(c("Lk","Rp","Vt")), mois = c("mai"),
+#                                         space="GE")
+#     D_juin <- applyD_Schoener_proba_pred(liste_usages = sort(liste.usages), mois = c("juin"),
+#                                          space="GE")
+#     D_jui_ao_sep <- lapply(c("juillet","aout","septembre"), function(x) 
+#       applyD_Schoener_proba_pred(liste_usages = sort(c("Ni","Pa","Rp","Co","Vt")), mois = x,
+#                                  space="GE") )
+# 
+#     D_summer_med <- list(D_mai$median, D_juin$median,
+#                            D_jui_ao_sep[[1]]$median,D_jui_ao_sep[[2]]$median,D_jui_ao_sep[[3]]$median
+#                            )
+#     D_summer_occ <- list(D_mai$occupancy, D_juin$occupancy,
+#                            D_jui_ao_sep[[1]]$occupancy,D_jui_ao_sep[[2]]$occupancy,D_jui_ao_sep[[3]]$occupancy)
+#   }
+#   
+#   saveMatrixSchoener <- function(matrix_M,name_save){
+#     # matrix_M et une liste de matrices
+#     
+#     # Combler les vides quand absence usage pendant un mois
+#     a <- unlist(lapply(1:length(matrix_M ), function(x) dim(matrix_M[[x]])[1]))
+#     higher_M <- matrix_M[[which.max(a)]]
+#     D_summer2 <- lapply(1:length(matrix_M), 
+#                         function(x) MatchMatrixDims(biggest_mat = higher_M, 
+#                                                     mat_to_expand =  matrix_M[[x]]))
+#     # remove upper triangle
+#     D_summer2 <- lapply(1:length(D_summer2), function(x) {
+#       M <- D_summer2[[x]]
+#       M[upper.tri(M)] <- NA
+#       return(M)})
+#     names(D_summer2) <- liste.mois
+#     
+#     # save matrices
+#     save(D_summer2,
+#          file = paste0(chemin_save,"/matrices_schoener_d_",name_save,".rdata"))
+#     # save in csv
+#     for(i in 1:length(D_summer2)){
+#       write.csv(D_summer2[i], 
+#                 paste0(chemin_save,"/matrice_schoener_d_",name_save,"_",names(D_summer2)[i],".csv"))
+#     }
+#     # mean + sd throught summer
+#     M_mean_sd <- meansd4listMatrices(D_summer2, sort(liste.usages))
+#     for(i in 1:length(M_mean_sd)){
+#       write.csv(M_mean_sd[i], 
+#                 paste0(chemin_save,"/schoener_d_",name_save,"_",names(M_mean_sd)[i],".csv"))
+#     }
+#     M = matrix(paste0(round(M_mean_sd$mean, 2), " (", 
+#                       round(M_mean_sd$sd, 2), ")"),
+#                6,6,
+#                dimnames = list(sort(liste.usages),sort(liste.usages)))
+#     M[upper.tri(M)] <- NA
+#     diag(M) <- 1
+#     df_mean_sd_D_obs = as.data.frame(M)
+#     df_mean_sd_D_obs
+#     write.csv(df_mean_sd_D_obs, 
+#               paste0(chemin_save,"/mat_schoener_d_mean_sd_summer_",name_save,".csv"))
+#     
+#   }
+#   
+#   # quand D schoener mensuel, calcul mean + sd
+#   if(any(fonction_applyschoener == "E_obs" | fonction_applyschoener == "G_proba")){
+#     # Rassembler les matrices au cours de l'été
+#     D_summer <- append(list(D_mai, D_juin), D_jui_ao_sep)
+#     saveMatrixSchoener(D_summer,"_")
+#   }
+#   if(fonction_applyschoener == "E_proba_filter"){
+#     saveMatrixSchoener(D_summer_med,"median")
+#     saveMatrixSchoener(D_summer_occ,"occupancy")
+#   }
+# }
 
 
 
@@ -2202,37 +2296,6 @@ schoenerD.stats <- function(fonction_applyschoener, chemin_save){
 #     
 #   }
 # }
-
-# fonction qui retourne une table coordonnées spatiales, valeurs env (dans l'espace désiré) et proba d'usages
-LinkProbaEnv <- function(mois,
-                         type_espace,
-                         type_donnees = "brute",
-                         algorithme = "glm",
-                         fit = "all_simple"){
-  # # TEST
-  # mois = "juin"
-  # type_espace = "ACP_globale" # "dimension" ou "ACP_globale"
-  
-  cat(paste0("n",mois,"n"))
-  
-  supp.labs <- c("Nesting","Sheep Grazing","Hiking",
-                 "Lek","Sheep Night Camping" ,"Mountain Bike")
-  names(supp.labs) <- c("Ni_proba","Pa_proba","Rp_proba",
-                        "Lk_proba","Co_proba", "Vt_proba")
-  
-  labs.env <- c("Biomass","Abiotic Conditions","Spatial Context",
-                "Dynamic","Infrastructure" ,"Vegetation Physionomy")
-  names(labs.env) <- c("B","CA","CS",
-                       "D","I", "PV")
-  
- 
-  
-  df_time <- data.frame(mois = c("mai","juin","juillet","aout","septembre"),
-                        english_month = c("May","June","July","August","September")  )
-  english_month <- df_time$english_month[df_time$mois == mois]
-  path_save <- paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
-                      fit,"/",algorithme,"/")
-}
 
 ### Constantes -------------------------------------
 
