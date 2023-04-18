@@ -623,6 +623,10 @@ trouverUnnom <- function(){
 
   ### E space : dimensions + global
   for(use_i in unique(df_proba_PCA_dim$Use)){
+    # # TEST
+    # use_i <- unique(df_proba_PCA_dim$Use)[2]
+    # month_i <- unique(df_proba_PCA_dim$Month)[2]
+    
     cat(paste0("\n", uses.labs[names(uses.labs) %in% use_i]," : \n"))
     for(month_i in unique(df_proba_PCA_dim$Month)){
       # Condition : si usage présent, load SDM
@@ -926,6 +930,13 @@ trouverUnnom <- function(){
         tbl_var_model <- as.data.frame(summary(model.fit)$coeff)
         tbl_var_model$Variable <- rownames(tbl_var_model)
         
+        # add english name
+        dfV <- data.frame(english_var_name = labs.vars, Variable = names(labs.vars))
+        tbl_var_model2 <- merge(tbl_var_model, dfV, by="Variable")
+        # Save table var signifs
+        write.csv(tbl_var_model2, paste0(output_path,"/niches/",type_donnees,"/",name_use,"/",
+                                        fit,"/tbl_vars_signifs.csv"))
+        
         coef_multi <- 1
         c <- 1.1
         
@@ -933,11 +944,14 @@ trouverUnnom <- function(){
                                                    df=df_proba_PCA_dim, 
                                                    month_i=month_i,
                                                    type_espace = "dimension")
+        var_signif_dims <- merge(var_signif_dims, dfV, by="Variable")
         
         var_signif_glob <- VisuVarSignifDimsfor1Use(use_i=use_i, 
                                                     df=df_proba_PCA_glob, 
                                                     month_i=month_i,
                                                     type_espace = "ACP_globale")
+        
+        var_signif_glob <- merge(var_signif_glob, dfV, by="Variable")
         
         P_glob_vars <- na.omit(df_proba_PCA_glob) %>%
           filter(Use == use_i, Month == month_i) %>%
@@ -961,7 +975,7 @@ trouverUnnom <- function(){
           geom_text(inherit.aes = F,
                     data= var_signif_glob ,
                     aes(x=Dim.1*c, y=Dim.2*c, 
-                        label=labs.vars[names(labs.vars) %in% Variable]),
+                        label= english_var_name),
                     size=5,
                     fontface = "bold",
                     check_overlap = TRUE,
@@ -991,7 +1005,7 @@ trouverUnnom <- function(){
           geom_text(inherit.aes = F,
                     data= var_signif_dims ,
                     aes(x=Dim.1*c, y=Dim.2*c, 
-                        label=labs.vars[names(labs.vars) %in% Variable]),
+                        label=english_var_name),
                     size=6,
                     fontface = "bold",
                     check_overlap = TRUE,
@@ -1125,6 +1139,11 @@ trouverUnnom <- function(){
              matrix_time)
   }
 
+  
+  
+  # TODO : idée Matthieu : min(Pu1,Pu2) 
+  # --> identifier les pixels où chevauchement fort + proba occurrence forte
+  
   # TODO 
   ### Schoener D local
   # Tester sur un échantillon
@@ -2333,9 +2352,9 @@ corresp_col = data.frame(dim_name = c(liste.dim,"toutes"),
 # algorithme = "glm"
 # fit = "2_axes"
 
-type_donnees = "brute"
-algorithme = "glm"
-fit = "all_simple"
+type_donnees <- "brute"
+algorithme <- "glm"
+fit <- "all_simple"
 
 # English names
 labs.vars <- c("GDD","NDVI","Water Balance",
@@ -2395,7 +2414,7 @@ names(labs.env) <- c("B","CA","CS",
 table_variables <- as.data.frame(fread(path_table_variables))
 table_variable_dummies <- as.data.frame(fread(path_table_variables_dummies, dec=","))
 table_variables$Nom_var_initial <- table_variables$Nom
-col_dim = merge(rbind(table_variables, table_variable_dummies), 
+col_dim <- merge(rbind(table_variables, table_variable_dummies), 
                 corresp_col,by.x="Dimension", by.y="dim_name")
 
 # mypalette <- setNames(col_dim$colour_dim, 
