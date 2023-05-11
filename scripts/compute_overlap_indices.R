@@ -415,14 +415,6 @@ GetEspaceTableDim <- function(mois,
 
 trouverUnnom <- function(){
   
-  
-  # directories paths
-  Gspace_path <- paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
-                        fit,"/",algorithme,"/G_space/") 
-  Espace_path <- paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
-                             fit,"/",algorithme,"/E_space/") 
-  
-  
   # Faire tourner si pas déjà fait, sinon juste lire csv
   # bon c'est vraiment casse couille ça refait le même bug que la dernière fois :
   # quand je travaille avec le csv chargé, impossible de construire les figures
@@ -755,7 +747,7 @@ trouverUnnom <- function(){
                 filter(Month == month_i) %>%
                 ggplot() +
                 stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
-                                 fun = function(x) median(x), bins=50,colour='grey') +
+                                 fun = function(x) median(x), bins=70,colour='grey') +
                 scale_fill_viridis(na.value = "transparent",
                                    limits=c(0,1), alpha=0.7)+
                 geom_segment(inherit.aes = F,
@@ -985,7 +977,7 @@ trouverUnnom <- function(){
           filter(Use == use_i, Month == month_i) %>%
           ggplot() +
           stat_summary_hex(aes(x=PCA1, y=PCA2, z= Proba),
-                           fun = function(x) median(x), bins=25,colour='grey') +
+                           fun = function(x) median(x), bins=50,colour='grey') +
           scale_fill_viridis(na.value = "transparent",
                              limits=c(0,1), alpha=0.7)+
           geom_segment(inherit.aes = F,
@@ -1258,7 +1250,29 @@ trouverUnnom <- function(){
 
 
 
+# calculer un usage "chevauchement"
+# sum/produit tous les usages à travers tous les mois = 1 carte globale
+dt <- fread(paste0(Gspace_path,"/df_proba_uses_xy_all_months.csv"),drop="V1")
 
+test <- dt %>% 
+  group_by(x,y, Month) %>%
+  summarise(sum_proba = sum(Proba, na.rm = T),
+            prod_proba = prod(Proba, na.rm = T))
+
+na.omit(test) %>%
+  ggplot() +
+  geom_raster(aes(x = x, y = y, fill = sum_proba)) +
+  scale_fill_viridis() +
+  theme(panel.background = element_rect(fill="white"),
+        plot.background = element_rect(fill="white"),
+        panel.grid.major = element_line(colour="grey"),
+        legend.position = "right",
+        text = element_text(size=15),
+        axis.text.x = element_text(angle=45)) +
+  labs(fill="Probability of\noccurrence",
+       x="Longitude",y="Latitude")+
+  facet_grid(~Month)
+  coord_equal()
 
 # # Fonction qui retourne un dataframe avec o_ij e_ij et z_ij pour un usage, pour un mois
 # GridObs <- function(usage,  mois,
@@ -2324,6 +2338,11 @@ wd <- getwd()
 output_path <- paste0(wd,"/output/")
 gitCaractMilieu <- "C:/Users/perle.charlot/Documents/PhD/DATA/R_git/CaractMilieu"
 input_path <- paste0(wd,"/input/")
+# directories paths
+Gspace_path <- paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
+                      fit,"/",algorithme,"/G_space/") 
+Espace_path <- paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
+                      fit,"/",algorithme,"/E_space/") 
 
 #### Données spatiales ####
 dos_var_sp <- "C:/Users/perle.charlot/Documents/PhD/DATA/Variables_spatiales_Belledonne/"
