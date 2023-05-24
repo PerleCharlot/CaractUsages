@@ -187,6 +187,7 @@ png(file = paste0(Gspace_path,"/probability_by_xy_all_uses_",example_month,".png
 plot(plot_explo_geo)
 dev.off()
 
+### Chevauchement géo ####
 
 # Identification des pixels à forte tension spatiale = CHEVAUCHEMENT GEOGRAPHIQUE
 # = proba forte + chevauchement avec autre usage
@@ -225,6 +226,9 @@ names(label_y) <- c("p_studysite","p_u1")
 
 df0bis$u2 <- as.factor(df0bis$u2)
 
+df0bis_geo <- df0bis
+
+# % par rap study site + % par rap u1
 pchv <- df0bis %>% ggplot(aes(x=seuil, y=y_values, color=u2)) +
   geom_line()+geom_point(size=1)+
   geom_hline(yintercept = 50, linetype='dashed')+
@@ -234,31 +238,87 @@ pchv <- df0bis %>% ggplot(aes(x=seuil, y=y_values, color=u2)) +
        subtitle=example_month)+
   facet_grid(y~u1,labeller = labeller(u1 = label_test, y=label_y), scales = "free")+
   #force_panelsizes(rows = c(0.2,0.5,0.8))+
-  theme(axis.title.y = element_blank())+
-scale_color_discrete(name = "Use", labels = label_test)
+  theme_bw()+
+scale_color_discrete(name = "Use", labels = label_test)+
+  theme(legend.position= "bottom",
+        axis.title.y = element_blank(),
+        text = element_text(size=18))
+# % par rap u1
+pchv2 <- df0bis %>% 
+  filter(y == "p_u1") %>%
+  ggplot(aes(x=seuil, y=y_values, color=u2)) +
+  geom_line()+geom_point(size=1)+
+  geom_hline(yintercept = 50, linetype='dashed')+
+  geom_vline(xintercept = 0.5, linetype='dashed')+
+  labs( x="Probability Threshold",
+        title="Geographical Overlapping Intensity",
+        subtitle=example_month)+
+  facet_grid(y~u1,labeller = labeller(u1 = label_test, y=label_y), scales = "free")+
+  #force_panelsizes(rows = c(0.2,0.5,0.8))+
+  theme_bw()+
+  scale_color_discrete(name = "Use", labels = label_test)+
+  theme(legend.position= "bottom",
+        axis.title.y = element_blank(),
+        text = element_text(size=18))
 
 # représente l'extent de u1 (~ prévalence ??)
-pchv2 <- df0 %>% ggplot(aes(x=seuil, y=area_u1_km2)) +
+extent_geo <- df0 %>% ggplot(aes(x=seuil, y=area_u1,fill=u1)) +
   geom_line() +
-  geom_ribbon(aes(ymax=area_u1_km2),ymin=0,alpha=0.3) +
+  geom_ribbon(aes(ymax=area_u1),ymin=0,alpha=0.3) +
   facet_wrap(.~u1,labeller = labeller(u1 = label_test),nrow = 1)+
   labs(x="Probability Threshold",
        y="Area (km²)") +
-  theme_bw()
+  scale_fill_discrete(name = "Use", labels = label_test)+
+  theme_bw()+
+  theme(legend.position= "none",text = element_text(size=18))
 
 design <- "
-  111111
-  111111
   111111
   111111
   222222
 "
 
-P_chvch <- pchv + pchv2 + plot_layout(design = design)
+P_chvch <- pchv2 + extent_geo + plot_layout(design = design)
 P_chvch 
 
 png(file = paste0(Gspace_path,"/overlapping_intensity_",example_month,".png"),width=2200, height=1200)
 plot(P_chvch)
+dev.off()
+
+compa_extent_geo <- df0 %>% 
+  filter(seuil>0) %>%
+  ggplot(aes(x=seuil, y=area_u1,fill=u1,col=u1)) +
+  geom_line() +
+  geom_ribbon(aes(ymax=area_u1),ymin=0,alpha=0.1) +
+  labs(x="Probability Threshold",
+       y="Area (km²)",
+       title="Comparison of Uses' Extent - Geographic Space") +
+  scale_color_discrete(name = "Use", labels = label_test)+
+  scale_fill_discrete(name = "Use", labels = label_test)+
+  theme_bw()+
+  theme(legend.position = c(0.8, 0.6))
+png(file = paste0(Gspace_path,"/extent_",example_month,".png"),width=650, height=400)
+plot(compa_extent_geo)
+dev.off()
+
+# free y axis
+extent_geo2 <- df0 %>% 
+  filter(seuil>0) %>%
+  ggplot(aes(x=seuil, y=area_u1,fill=u1)) +
+  geom_line() +
+  facet_wrap(u1~.,labeller = labeller(u1 = label_test),
+             nrow = 1,
+             scales = "free_y") +
+  geom_ribbon(aes(ymax=area_u1),ymin=0,alpha=0.3) +
+  labs(x="Probability Threshold",
+       y="Area (km²)",
+       subtitle=example_month,
+       title="Comparison of Uses' Extent - Geographic Space") +
+  scale_fill_discrete(name = "Use", labels = label_test)+
+  theme_bw()+
+  theme(legend.position= "none")
+png(file = paste0(Gspace_path,"/extent_free_y_",example_month,".png"),width=1800, height=400)
+plot(extent_geo2)
 dev.off()
 
 ### ESPACE ECOLOGIQUE ####
@@ -407,7 +467,7 @@ plot(PPe2)
 dev.off()
 
 
-
+### Chevauchement éco ####
 # Mesure largeur de niche, en fonction seuil proba
 seq_seuil <- seq(0,1,0.01)
 liste_use1 <- unique(df_eco2$Use)
@@ -443,7 +503,11 @@ names(label_y) <- c("p_studysite","p_u1")
 
 df0bis$u2 <- as.factor(df0bis$u2)
 
-pchv <- df0bis %>% ggplot(aes(x=seuil, y=y_values, color=u2)) +
+df0bis_eco <- df0bis
+
+# TODO : reprendre les styles des graphs en géo
+
+pchv <- df0bis_eco %>% ggplot(aes(x=seuil, y=y_values, color=u2)) +
   geom_line()+geom_point(size=1)+
   geom_hline(yintercept = 50, linetype='dashed')+
   geom_vline(xintercept = 0.5, linetype='dashed')+
@@ -501,3 +565,55 @@ plot(P_chvch)
 dev.off()
 
 
+
+
+### Comparaison éco / géo ####
+
+# TODO : plus propre
+
+# df0bis_geo$space <- "geo"
+names(df0bis_geo)[4] <- "extent"
+names(df0bis_geo)[6] <- "pct_chvch_geo"
+# df0bis_eco$space <- "eco"
+names(df0bis_eco)[4] <- "breadth"
+names(df0bis_eco)[6] <- "pct_chvch_eco"
+
+save(df0bis_eco,df0bis_geo,
+     file = paste0(niche_overlap_path,"/overlap_tables.rdata"))
+
+
+df0bis_geo2 <- df0bis_geo %>%
+  filter(y == "p_u1") %>%
+  dplyr::select(-y)
+df0bis_eco2 <- df0bis_eco %>%
+  filter(y == "p_u1") %>%
+  dplyr::select(-y)
+
+df_compa_eco_geo <- merge(df0bis_eco2, df0bis_geo2, by=c("u1","u2","seuil"))
+
+
+threshold_used <- 0.85
+
+compa_eco_geo_plot <- df_compa_eco_geo %>%
+  filter(seuil == threshold_used) %>%
+  ggplot(aes(x=pct_chvch_geo,y=pct_chvch_eco,col=u2,shape=u2)) +
+  geom_point(size=5)+
+  geom_abline(intercept = 0, slope = 1)+
+  facet_wrap(.~u1,labeller = labeller(u1 = label_test),nrow = 1)+
+  scale_color_discrete(name = "Use", labels = label_test)+
+  scale_shape_discrete(name = "Use", labels = label_test) +
+  labs(x="% Geographic Overlap",
+       y="% Ecological Overlap",
+       title="Comparison of Overlaps in Geographic and Ecological Spaces",
+       subtitle=paste0("Probability threshold ",threshold_used," - ", example_month)
+       )+
+  theme_bw()+
+  xlim(0,100)+
+  theme(legend.position= "bottom",
+        text = element_text(size=18))
+
+
+png(file = paste0(niche_overlap_path,"/comparison_overlap_geo_eco_",example_month,"_threshold_",threshold_used,".png"),
+    width=2200, height=600)
+plot(compa_eco_geo_plot)
+dev.off()
