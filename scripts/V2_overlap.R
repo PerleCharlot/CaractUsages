@@ -2,7 +2,7 @@
 # Nom : Calcul indices overlap
 # Auteure : Perle Charlot
 # Date de création : 26-06-2023
-# Dates de modification : -2023
+# Dates de modification : 30-06-2023
 
 ### Librairies -------------------------------------
 library(data.table)
@@ -249,6 +249,37 @@ makeHexData <- function(df) {
              # max = tapply(df$z, h@cID, FUN = function(z) max(z)),
              cid = h@cell)
 }
+# Compute hexagonal summary of proba for each use
+f_hex <- function(df2, u){
+  # # TEST
+  # df2 <- df_for_hex
+  # u <- 3
+  
+  # Subset pour l'usage u
+  A <- df2[,c(1:2,u)]
+  name_u <- names(A)[3]
+  names(A)[3] <- "z"
+  # compute grille hexagonale
+  Ahex <- makeHexData(A)
+  
+  # rename and add vars
+  if(exists("mois_run")){
+    Ahex <- Ahex %>%
+      rename(PCA1 =x, PCA2 = y) %>%
+      mutate(Month = mois_run)
+  }else{
+    Ahex <- Ahex %>%
+      rename(PCA1 =x, PCA2 = y)
+  }
+  
+  # Filtrer par threshold
+  th_u <- summary_models$threshold_kept[which(substr(name_u,1,2) %in% summary_models$use)] 
+  Ahex$median_proba_pres <- ifelse(Ahex$z > th_u,
+                                   1,0)
+  names(Ahex)[3] <- name_u
+  names(Ahex)[dim(Ahex)[2]] <- paste0(name_u,"_pred")
+  return(Ahex)
+}
 # Fonction qui retourne une table, pour un mois donné, des valeurs env aggrégés
 f_hex_month <- function(mois_run, df){
   # # TEST
@@ -261,37 +292,37 @@ f_hex_month <- function(mois_run, df){
     dplyr::select(Use,PCA1,PCA2, Proba) %>%
     pivot_wider(names_from = Use, values_from = Proba) %>%
     rename(x=PCA1, y =PCA2)
-  # Compute hexagonal summary of proba for each use
-  f_hex <- function(df2, u){
-    # # TEST
-    # df2 <- df_for_hex
-    # u <- 3
-    
-    # Subset pour l'usage u
-    A <- df2[,c(1:2,u)]
-    name_u <- names(A)[3]
-    names(A)[3] <- "z"
-    # compute grille hexagonale
-    Ahex <- makeHexData(A)
-    
-    # rename and add vars
-    if(exists("mois_run")){
-      Ahex <- Ahex %>%
-        rename(PCA1 =x, PCA2 = y) %>%
-        mutate(Month = mois_run)
-    }else{
-      Ahex <- Ahex %>%
-        rename(PCA1 =x, PCA2 = y)
-    }
-    
-    # Filtrer par threshold
-    th_u <- summary_models$threshold_kept[which(substr(name_u,1,2) %in% summary_models$use)] 
-    Ahex$median_proba_pres <- ifelse(Ahex$z > th_u,
-                                     1,0)
-    names(Ahex)[3] <- name_u
-    names(Ahex)[dim(Ahex)[2]] <- paste0(name_u,"_pred")
-    return(Ahex)
-  }
+  # # Compute hexagonal summary of proba for each use
+  # f_hex <- function(df2, u){
+  #   # # TEST
+  #   # df2 <- df_for_hex
+  #   # u <- 3
+  #   
+  #   # Subset pour l'usage u
+  #   A <- df2[,c(1:2,u)]
+  #   name_u <- names(A)[3]
+  #   names(A)[3] <- "z"
+  #   # compute grille hexagonale
+  #   Ahex <- makeHexData(A)
+  #   
+  #   # rename and add vars
+  #   if(exists("mois_run")){
+  #     Ahex <- Ahex %>%
+  #       rename(PCA1 =x, PCA2 = y) %>%
+  #       mutate(Month = mois_run)
+  #   }else{
+  #     Ahex <- Ahex %>%
+  #       rename(PCA1 =x, PCA2 = y)
+  #   }
+  #   
+  #   # Filtrer par threshold
+  #   th_u <- summary_models$threshold_kept[which(substr(name_u,1,2) %in% summary_models$use)] 
+  #   Ahex$median_proba_pres <- ifelse(Ahex$z > th_u,
+  #                                    1,0)
+  #   names(Ahex)[3] <- name_u
+  #   names(Ahex)[dim(Ahex)[2]] <- paste0(name_u,"_pred")
+  #   return(Ahex)
+  # }
   hex_uses <- lapply(3:dim(test_all)[2], function(x) f_hex(df2=test_all, u=x))
   
   hex_uses <- Reduce(function(x,y) merge(x = x, y = y, by = c('PCA1','PCA2','Month','n','cid')), 
@@ -304,95 +335,6 @@ f_hex_month <- function(mois_run, df){
                  names_to = "Use2" ,values_to = "pred")
   return(hex_uses)
 }
-
-### Constantes -------------------------------------
-
-# Espace de travail
-wd <- getwd()
-# Arguments pour le choix du modèle à utiliser
-type_donnees <- "brute"
-algorithme <- "glm"
-fit <- "all_simple"
-# Dossier des outputs (dans le git)
-output_path <- paste0(wd,"/output/")
-gitCaractMilieu <- "C:/Users/perle.charlot/Documents/PhD/DATA/R_git/CaractMilieu"
-input_path <- paste0(wd,"/input/")
-table_fold_path <- paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
-                          fit,"/",algorithme,"/tables_pres/")
-path_summary_models <- paste0(output_path,"/niches/",type_donnees,
-                              "/summary_model_kept.csv")
-#### Données spatiales ####
-dos_var_sp <- "C:/Users/perle.charlot/Documents/PhD/DATA/Variables_spatiales_Belledonne/"
-limiteN2000 <- paste0(dos_var_sp, "/limites_etude/cembraie_N2000_limites.gpkg")
-# Projection Lambert 93 (EPSG : 2154)
-EPSG_2154 =  "+proj=lcc +lat_1=49 +lat_2=44 +lat_0=46.5 +lon_0=3 +x_0=700000 +y_0=6600000 +ellps=GRS80 +units=m +no_defs "
-#### Autre ####
-liste.mois <- c("mai","juin","juillet","aout","septembre")
-df.mois <- data.frame(nom_mois = liste.mois, numero_mois = c("05","06","07","08","09"))
-# Translate french <-> english (for figures)
-df_time <- data.frame(mois = c("mai","juin","juillet","aout","septembre"),
-                      english_month = c("May","June","July","August","September"))
-
-# Liste dimensions
-liste.dim =  c("CA","B","PV","CS","D","I")
-# Liste usages
-liste.usages = c("Ni","Lk","Co","Pa","Rp","Vt")
-
-# Tables
-path_table_variables <- paste0(gitCaractMilieu,"/input/liste_variables.csv")
-path_table_variables_dummies <- paste0(gitCaractMilieu,"/input/liste_variables_dummies.csv")
-# Table correspondance entre dimension et couleur à utiliser dans les graphs
-corresp_col <- data.frame(dim_name = c(liste.dim,"toutes"),
-                         colour_dim = c("dodgerblue","darkgoldenrod1","darkgreen",
-                                        "brown","blueviolet","darkgray","antiquewhite"))
-# Labels names for plots
-uses.labs <- c("Nesting","Sheep Grazing","Hiking",
-               "Lek","Sheep Night Camping" ,"Mountain Bike")
-names(uses.labs) <- paste0(c("Ni","Pa","Rp","Lk","Co","Vt") ,"_proba")
-# nouveaux labels
-uses.labs2 <- uses.labs
-names(uses.labs2) <- paste0(names(uses.labs2),"_pred")
-
-
-labs.env <- c("Biomass","Abiotic Conditions","Spatial Context",
-              "Dynamic","Infrastructure" ,"Vegetation Physionomy")
-names(labs.env) <- c("B","CA","CS",
-                     "D","I", "PV")
-### Programme -------------------------------------
-
-# PARTIE A FAIRE TOUJOURS TOURNER ####
-table_variables <- as.data.frame(fread(path_table_variables))
-table_variable_dummies <- as.data.frame(fread(path_table_variables_dummies, dec=","))
-summary_models <- as.data.frame(fread(path_summary_models,drop="V1"))
-table_variables$Nom_var_initial <- table_variables$Nom
-col_dim <- merge(rbind(table_variables, table_variable_dummies), 
-                 corresp_col,by.x="Dimension", by.y="dim_name")
-
-# Construction ou lecture des tables de présence #
-t = try(as.data.frame(fread(paste0(table_fold_path,"/df_PCA_glob_proba_xy_all_months.csv"),drop="V1")),
-        silent = TRUE)
-if(inherits(t, "try-error")){
-  # 1 - G tables
-  df_proba_uses <- as.data.frame(do.call(rbind,lapply(liste.mois, function(x) GetGspaceTable(mois=x))))
-  write.csv(df_proba_uses,paste0(table_fold_path,"/df_proba_uses_xy_all_months.csv"))
-  # 2 - E tables
-  df_PCA_glob <- as.data.frame(do.call(rbind,lapply(liste.mois, function(x) GetEspaceTableGlob(mois=x))))
-  write.csv(df_PCA_glob,paste0(table_fold_path,"/df_PCA_glob_xy_all_months.csv"))
-  # 3 - merge
-  df_proba_PCA_xy <- merge(df_proba_uses,df_PCA_glob, by=c("x","y","Month"),all=T)
-  df_proba_PCA_xy$Month <- factor(df_proba_PCA_xy$Month,      
-                                  levels = c("May","June","July",
-                                             "August","September"))
-  write.csv(df_proba_PCA_xy,paste0(table_fold_path,"/df_PCA_glob_proba_xy_all_months.csv"))
-}else {df_proba_PCA_xy <- as.data.frame(fread(paste0(table_fold_path,"/df_PCA_glob_proba_xy_all_months.csv"),drop="V1"))}
-
-# Reordering group factor levels
-df_proba_PCA_xy$Use <- factor(df_proba_PCA_xy$Use,      
-                              levels = paste0(c("Ni","Pa","Rp","Lk","Co","Vt") ,"_proba"))
-df_proba_PCA_xy$Month <- factor(df_proba_PCA_xy$Month,      
-                                levels = c("May","June","July","August","September"))
-df_proba_PCA_xy <- na.omit(df_proba_PCA_xy)
-### Plots des proba dans espaces G et E ####
 
 # crée les figures :
 # - G space : probabilité et prédiction binaires, 6 uses X 5 mois
@@ -459,10 +401,6 @@ Create.Plots.Monthly <- function(){
   plot(plot_allMonths_pred_G)
   dev.off()
   
-  ## find the bounds for the complete data 
-  xbnds <- range(c(df_proba_PCA_xy$PCA1))
-  ybnds <- range(c(df_proba_PCA_xy$PCA2))
-  nbins <- 60
   # Faire tourner les fonctions qui font un summary des proba utilisable pour hex
   df_hex_uses <- lapply(as.character(unique(df_proba_PCA_xy$Month)), 
                         function(x) f_hex_month(df=df_proba_PCA_xy, mois_run=x))
@@ -472,7 +410,7 @@ Create.Plots.Monthly <- function(){
                              levels = paste0(c("Ni","Pa","Rp","Lk","Co","Vt") ,"_proba_pred"))
   df_hex_uses$Month <- factor(df_hex_uses$Month,      
                               levels = c("May","June","July","August","September"))
-
+  
   ##  plot the results (all uses across months)
   plot_allMonths_pred_E <- ggplot(df_hex_uses) +
     geom_hex(aes(x = PCA1, y = PCA2, fill = pred),
@@ -494,14 +432,37 @@ Create.Plots.Monthly <- function(){
       width=2100, height=1200)
   plot(plot_allMonths_pred_E)
   dev.off()
+  
+  # Plot density of geographic pixels summarized in E space
+  P <- ggplot(df_hex_uses) +
+    geom_hex(aes(x = PCA1, y = PCA2, fill = n),
+             stat = "identity", 
+             colour='grey',
+             alpha = 0.8) +
+    scico::scale_fill_scico(palette = "vik")+
+    #scale_fill_viridis(limits=c(0,1)) +
+    geom_hline(yintercept = 0,linetype="dashed")+
+    geom_vline(xintercept = 0,linetype="dashed") +
+    labs(fill = "Density of\ngeographic pixels")+
+    facet_grid(Month ~ . ) +
+    theme(text = element_text(size=18),
+          panel.background = element_rect(fill="white"),
+          plot.background = element_rect(fill="white"),
+          panel.grid.major = element_line(colour="grey"))+
+    coord_equal()
+  # Save
+  png(file = paste0(table_fold_path,"/density_geopix_E_space_months.png"),
+      width=2100, height=1200)
+  plot(P)
+  dev.off()
+  
+  # Save csv to compute overlap
+  write.csv(df_hex_uses,paste0(table_fold_path,"/df_pred_ACP_months.csv"))
 }
-
-Create.Plots()
 
 # crée la figure :
 # - G space : prédiction binaires, 6 uses X 1 summer
 # - E space : prédiction binaires, 6 uses X 1 summer
-
 Create.Plots.Summer <- function(){
   # Mettre en forme et aggréger sur les 5 mois
   df_pred_xy_summer <- df_proba_PCA_xy %>%
@@ -604,7 +565,7 @@ Create.Plots.Summer <- function(){
     labs(title = "Probability of Occurrence projected in Ecological Space",
          fill = "Predicted\noutcome")+
     facet_grid( ~ Use2,# scales = "free",
-               labeller = labeller(Use2 = uses.labs3)
+                labeller = labeller(Use2 = uses.labs3)
     ) +
     theme(text = element_text(size=18),
           panel.background = element_rect(fill="white"),
@@ -642,20 +603,355 @@ Create.Plots.Summer <- function(){
   write.csv(df_hex_uses,paste0(table_fold_path,"/df_pred_ACP_sumtimes.csv"))
 }
 
+# Fonction qui retourne le % d'aire partagée, pour u1, avec u2
+ComputeOverlap <- function(table_pres_abs, liste_u1_u2){
+  # # TEST
+  # table_pres_abs <- df_4O_run
+  # liste_u1_u2 <- c("Lk","Rp")
+  
+  nom_u1 <- liste_u1_u2[1]
+  nom_u2 <- liste_u1_u2[2]
+  
+  A_u1 <- sum(table_pres_abs[,grep(nom_u1, names(table_pres_abs))], na.omit=T)
+  A_u2 <- sum(table_pres_abs[,grep(nom_u2, names(table_pres_abs))], na.omit=T)
+  
+  table_pres_abs$inter <- table_pres_abs[, grep(nom_u1, names(table_pres_abs))] + 
+    table_pres_abs[, grep(nom_u2, names(table_pres_abs))]
+  
+  A_u1_inter_u2 <- as.numeric(table(table_pres_abs$inter)["2"])
+  
+  overlap_u1 <- A_u1_inter_u2/A_u1
+  overlap_u2 <- A_u1_inter_u2/A_u2
+  
+  df_overlap <- data.frame(u1=nom_u1,
+                           u2=nom_u2,
+                           A_u1 = A_u1,
+                           A_u2 = A_u2,
+                           A_inter = A_u1_inter_u2,
+                           overlap_u1=overlap_u1,
+                           overlap_u2=overlap_u2)
+  
+  return(df_overlap)
+}
+
+# Fonction qui calcule overlap pour un mois donné
+Run_ComputeOverlap_monthly <- function(df , mois_run){
+  # # TEST
+  # mois_run <- 'May'
+  # df <- df_pred_PCA_4O
+  
+  # Subset selon le mois
+  df_4O_run <- df %>%
+    filter(Month == mois_run) 
+  #dplyr::select(-Month)
+  
+  df_overlap_run <- do.call(rbind, lapply(liste_paires_usages, function(x) 
+    ComputeOverlap(table_pres_abs = df_4O_run, liste_u1_u2 = x)))
+  df_overlap_run$Month <- mois_run
+  str(df_overlap_run)
+  return(df_overlap_run)
+}
+
+# met en forme une table d'overlap
+makePaire <- function(df, mois_run,space){
+  # #TEST
+  # df <- df_overlap_G_monthly
+  # mois_run <- 'June'
+  # space <- "G"
+  
+  df_month <- df %>%
+    filter(Month == mois_run) %>%
+    dplyr::select(-c(A_u1,A_u2,A_inter)) %>%
+    mutate(paire1 = paste(u1, u2,sep="_"),
+           paire2 = paste(u2, u1,sep="_"))
+  
+  df_overlap <- data.frame(paire = c(df_month$paire1, df_month$paire2),
+                           overlap = c(df_month$overlap_u1, df_month$overlap_u2),
+                           Month= mois_run)
+  names(df_overlap)[2] <- paste0("overlap_",space)
+  return(df_overlap)
+}
+### Constantes -------------------------------------
+
+# Espace de travail
+wd <- getwd()
+# Arguments pour le choix du modèle à utiliser
+type_donnees <- "brute"
+algorithme <- "glm"
+fit <- "all_simple"
+# Dossier des outputs (dans le git)
+output_path <- paste0(wd,"/output/")
+gitCaractMilieu <- "C:/Users/perle.charlot/Documents/PhD/DATA/R_git/CaractMilieu"
+input_path <- paste0(wd,"/input/")
+table_fold_path <- paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
+                          fit,"/",algorithme,"/tables_pres/")
+path_summary_models <- paste0(output_path,"/niches/",type_donnees,
+                              "/summary_model_kept.csv")
+#### Données spatiales ####
+dos_var_sp <- "C:/Users/perle.charlot/Documents/PhD/DATA/Variables_spatiales_Belledonne/"
+limiteN2000 <- paste0(dos_var_sp, "/limites_etude/cembraie_N2000_limites.gpkg")
+# Projection Lambert 93 (EPSG : 2154)
+EPSG_2154 =  "+proj=lcc +lat_1=49 +lat_2=44 +lat_0=46.5 +lon_0=3 +x_0=700000 +y_0=6600000 +ellps=GRS80 +units=m +no_defs "
+#### Autre ####
+liste.mois <- c("mai","juin","juillet","aout","septembre")
+df.mois <- data.frame(nom_mois = liste.mois, numero_mois = c("05","06","07","08","09"))
+# Translate french <-> english (for figures)
+df_time <- data.frame(mois = c("mai","juin","juillet","aout","septembre"),
+                      english_month = c("May","June","July","August","September"))
+
+# Liste dimensions
+liste.dim =  c("CA","B","PV","CS","D","I")
+# Liste usages
+liste.usages = c("Ni","Lk","Co","Pa","Rp","Vt")
+
+# Tables
+path_table_variables <- paste0(gitCaractMilieu,"/input/liste_variables.csv")
+path_table_variables_dummies <- paste0(gitCaractMilieu,"/input/liste_variables_dummies.csv")
+# Table correspondance entre dimension et couleur à utiliser dans les graphs
+corresp_col <- data.frame(dim_name = c(liste.dim,"toutes"),
+                         colour_dim = c("dodgerblue","darkgoldenrod1","darkgreen",
+                                        "brown","blueviolet","darkgray","antiquewhite"))
+# Labels names for plots
+uses.labs <- c("Nesting","Sheep Grazing","Hiking",
+               "Lek","Sheep Night Camping" ,"Mountain Bike")
+names(uses.labs) <- paste0(c("Ni","Pa","Rp","Lk","Co","Vt") ,"_proba")
+# nouveaux labels
+uses.labs2 <- uses.labs
+names(uses.labs2) <- paste0(names(uses.labs2),"_pred")
+
+
+labs.env <- c("Biomass","Abiotic Conditions","Spatial Context",
+              "Dynamic","Infrastructure" ,"Vegetation Physionomy")
+names(labs.env) <- c("B","CA","CS",
+                     "D","I", "PV")
+### Programme -------------------------------------
+
+# PARTIE A FAIRE TOUJOURS TOURNER ####
+table_variables <- as.data.frame(fread(path_table_variables))
+table_variable_dummies <- as.data.frame(fread(path_table_variables_dummies, dec=","))
+summary_models <- as.data.frame(fread(path_summary_models,drop="V1"))
+table_variables$Nom_var_initial <- table_variables$Nom
+col_dim <- merge(rbind(table_variables, table_variable_dummies), 
+                 corresp_col,by.x="Dimension", by.y="dim_name")
+
+# Construction ou lecture des tables de présence #
+t = try(as.data.frame(fread(paste0(table_fold_path,"/df_PCA_glob_proba_xy_all_months.csv"),drop="V1")),
+        silent = TRUE)
+if(inherits(t, "try-error")){
+  # 1 - G tables
+  df_proba_uses <- as.data.frame(do.call(rbind,lapply(liste.mois, function(x) GetGspaceTable(mois=x))))
+  write.csv(df_proba_uses,paste0(table_fold_path,"/df_proba_uses_xy_all_months.csv"))
+  # 2 - E tables
+  df_PCA_glob <- as.data.frame(do.call(rbind,lapply(liste.mois, function(x) GetEspaceTableGlob(mois=x))))
+  write.csv(df_PCA_glob,paste0(table_fold_path,"/df_PCA_glob_xy_all_months.csv"))
+  # 3 - merge
+  df_proba_PCA_xy <- merge(df_proba_uses,df_PCA_glob, by=c("x","y","Month"),all=T)
+  df_proba_PCA_xy$Month <- factor(df_proba_PCA_xy$Month,      
+                                  levels = c("May","June","July",
+                                             "August","September"))
+  write.csv(df_proba_PCA_xy,paste0(table_fold_path,"/df_PCA_glob_proba_xy_all_months.csv"))
+}else {df_proba_PCA_xy <- as.data.frame(fread(paste0(table_fold_path,"/df_PCA_glob_proba_xy_all_months.csv"),drop="V1"))}
+
+# Reordering group factor levels
+df_proba_PCA_xy$Use <- factor(df_proba_PCA_xy$Use,      
+                              levels = paste0(c("Ni","Pa","Rp","Lk","Co","Vt") ,"_proba"))
+df_proba_PCA_xy$Month <- factor(df_proba_PCA_xy$Month,      
+                                levels = c("May","June","July","August","September"))
+df_proba_PCA_xy <- na.omit(df_proba_PCA_xy)
+
+### Plots des proba dans espaces G et E ####
+
+## find the bounds for the complete data 
+xbnds <- range(c(df_proba_PCA_xy$PCA1), na.omit=T)
+ybnds <- range(c(df_proba_PCA_xy$PCA2), na.omit=T)
+nbins <- 60
+
+Create.Plots.Monthly()
+
+Create.Plots.Summer()
 
 ### Calcul des chevauchements dans espaces G et E ####
 
+# liste des paires d'usages
+df_combi <- combn(liste.usages, 2)
+liste_paires_usages <- lapply(1:dim(df_combi)[2], function(x) paste(df_combi[,x]))
 
-# 2 : par paire, calculer indice chvch = INTENSITE CHVCH ESP GEO (peut se faire en restant en raster)
-# 4 : par paire, calculer indice chvch = SIMILARITE DE NICHE
+## Par mois
 
-ComputeOverlap <- function(table_pres_abs, nom_u1, nom_u2){
+# G space (4O = for overlap analysis)
+df_pred_xy_4O <- df_proba_PCA_xy %>%
+  dplyr::select(-c('threshold_kept','Proba','PCA1','PCA2')) %>%
+  pivot_wider(names_from = 'Use', values_from = 'pres_pred')
+# répéter pour chaque mois
+df_overlap_G_monthly <- do.call(rbind, 
+                                lapply(df_time$english_month, 
+                                       function(x) Run_ComputeOverlap_monthly(df = df_pred_xy_4O, 
+                                                                              mois_run = x)))
+# E space
+df_hex_uses <- fread(paste0(table_fold_path,"/df_pred_ACP_months.csv"),drop="V1")
+df_pred_PCA_4O <- df_hex_uses %>%
+  group_by(Month, PCA1, PCA2) %>%
+  dplyr::select(-c('cid','Use','median_proba')) %>%
+  distinct() %>%
+  pivot_wider(names_from = 'Use2', values_from = 'pred') %>%
+  as.data.frame
+# répéter pour chaque mois
+df_overlap_E_monthly <- do.call(rbind, lapply(df_time$english_month, 
+                      function(y) Run_ComputeOverlap_monthly(df = df_pred_PCA_4O, 
+                                                             mois_run=y)))
+
+# Plot similarité E vs intensité chevauchement G
+df_overlap_G_monthly_2 <- do.call(rbind,lapply(df_time$english_month, function(x) makePaire(df=df_overlap_G_monthly,
+                                                                  mois_run = x,
+                                                                  space="G")))
+df_overlap_E_monthly_2 <- do.call(rbind,lapply(df_time$english_month, function(x) makePaire(df=df_overlap_E_monthly,
+                                                                  mois_run = x,
+                                                                  space="E")))
+df_overlap_monthly <- merge(df_overlap_G_monthly_2, df_overlap_E_monthly_2,
+      by=c('paire', 'Month'))
+# Ordonner les mois
+df_overlap_monthly$Month <- factor(df_overlap_monthly$Month,      
+                            levels = c("May","June","July","August","September"))
+
+# Classifier les paires selon appartenance activités humaines ou faune sauvage
+test <- as.data.frame(t(combn(liste.usages, 2)))
+test2 <- data.frame(use = liste.usages,
+                    category = c("FS","FS","PA","PA","PR","PR"), #FS = faune sauvage, PA = pastoralisme, PR = pratique récréative
+                    category_big = c("FS","FS","AH","AH","AH","AH")) # AH = activité humaine
+
+a <- merge(test,test2, by.x="V1",by.y="use",sort=F)
+a <- a %>%
+  dplyr::select(-V2)
+b <- merge(test,test2, by.x="V2",by.y="use",sort=F)
+b <- b %>%
+  dplyr::select(-V1)
+
+d1 <- data.frame(paire = paste(a$V1,b$V2,sep="_"),
+           category = paste(a$category,b$category,sep="_"),
+           category_big = paste(a$category_big,b$category_big,sep="_"))
+
+a <- merge(test,test2, by.x="V2",by.y="use",sort=F)
+a <- a %>%
+  dplyr::select(-V1)
+b <- merge(test,test2, by.x="V1",by.y="use",sort=F)
+b <- b %>%
+  dplyr::select(-V2)
+
+d2 <- data.frame(paire = paste(a$V2,b$V1,sep="_"),
+                 category = paste(a$category,b$category,sep="_"),
+                 category_big = paste(a$category_big,b$category_big,sep="_"))
+
+corresp_classif_paire <- rbind(d1,d2)
+
+
+
+
+
+# au global (tous les mois mélanges, toutes les paires)
+df_overlap_monthly %>%
+  ggplot(aes(x=overlap_G, y = overlap_E)) +
+  geom_point() +
+  ylim(0,1)+
+  geom_abline(intercept = 0, slope = 1) +
+  labs(x = "Intensity of Geographic Overlap",
+       y = "Ecological Similarity") +
+  theme(text = element_text(size=18),
+        panel.background = element_rect(fill="white"),
+        plot.background = element_rect(fill="white"),
+        panel.grid.major = element_line(colour="grey"))
+# TODO : comparer si on trouve une diff avec le graph summer
+# normalement il devrait y avoir moins de points sur l'autre,
+# mais est-ce que même tendance ?
+
+df_overlap_monthly2 <- merge(df_overlap_monthly, corresp_classif_paire, by='paire')
+
+df_overlap_monthly2 <- df_overlap_monthly2 %>%
+  distinct()
+
+df_overlap_monthly2 %>%
+  ggplot(aes(x=overlap_G, y = overlap_E, col=as.factor(category_big))) +
+  geom_point() +
+  ylim(0,1)+
+  geom_abline(intercept = 0, slope = 1) +
+  labs(x = "Intensity of Geographic Overlap",
+       y = "Ecological Similarity") +
+  theme(text = element_text(size=18),
+        panel.background = element_rect(fill="white"),
+        plot.background = element_rect(fill="white"),
+        panel.grid.major = element_line(colour="grey"))
+
+df_overlap_monthly2 %>%
+  ggplot(aes(x=overlap_G, y = overlap_E, col=as.factor(category))) +
+  geom_point() +
+  ylim(0,1)+
+  geom_abline(intercept = 0, slope = 1) +
+  labs(x = "Intensity of Geographic Overlap",
+       y = "Ecological Similarity") +
+  theme(text = element_text(size=18),
+        panel.background = element_rect(fill="white"),
+        plot.background = element_rect(fill="white"),
+        panel.grid.major = element_line(colour="grey"))
+
+df_overlap_monthly2 %>%
+  ggplot(aes(x=overlap_G, y = overlap_E, col=as.factor(category_big))) +
+  geom_point() +
+  ylim(0,1)+
+  facet_grid( ~ Month)+
+  geom_abline(intercept = 0, slope = 1) +
+  labs(x = "Intensity of Geographic Overlap",
+       y = "Ecological Similarity") +
+  theme(text = element_text(size=18),
+        panel.background = element_rect(fill="white"),
+        plot.background = element_rect(fill="white"),
+        panel.grid.major = element_line(colour="grey"))
+
+# par mois
+df_overlap_monthly %>%
+  ggplot(aes(x=overlap_G, y = overlap_E)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1) +
+  facet_grid( ~ Month)+
+  labs(x = "Intensity of Geographic Overlap",
+       y = "Ecological Similarity") +
+  theme(text = element_text(size=18),
+        panel.background = element_rect(fill="white"),
+        plot.background = element_rect(fill="white"),
+        panel.grid.major = element_line(colour="grey"))
+
+# par paire
+df_overlap_monthly %>%
+  ggplot(aes(x=overlap_G, y = overlap_E)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1) +
+  labs(x = "Intensity of Geographic Overlap",
+       y = "Ecological Similarity") +
+  facet_wrap(~paire) +
+  theme(text = element_text(size=18),
+        panel.background = element_rect(fill="white"),
+        plot.background = element_rect(fill="white"),
+        panel.grid.major = element_line(colour="grey"))
   
-  A_u1 <- sum(table_pres_abs["nom_u1"])
-  A_u2 <- sum(table_pres_abs["nom_u2"])
   
-  table_pres_abs$inter <- table_pres_abs["nom_u1"] + table_pres_abs["nom_u2"]
-  
-  table(table_pres_abs$inter)
-  
-}
+
+
+
+
+
+
+# TODO
+
+## Pour tout l'été
+
+# G space
+head(df_proba_PCA_xy)
+df_proba_PCA_xy %>%
+  filter
+# E space
+df_hex_uses <- fread(paste0(table_fold_path,"/df_pred_ACP_sumtimes.csv"),drop="V1")
+
+
+
+
+
+
+
