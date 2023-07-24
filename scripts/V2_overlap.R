@@ -2,7 +2,7 @@
 # Nom : Calcul indices overlap
 # Auteure : Perle Charlot
 # Date de création : 26-06-2023
-# Dates de modification : 30-06-2023
+# Dates de modification : 24-07-2023
 
 ### Librairies -------------------------------------
 library(data.table)
@@ -24,12 +24,14 @@ library(scico)
 GetGspaceTable <- function(mois,
                            usages_etudies = NULL, #si on veut une sélection d'usages particulière, 
                            # de base, la fonction fait pour tous les usages rencontrés le mois étudié
-                           type_donnees = "brute",
+                           data_type,  # "proba" or "obs"
+                           type_donnees_glm = "brute",
                            fit = "all_simple",
                            algorithme = "glm"){
   # # TEST
   # mois = "juin"
   # usages_etudies = NULL
+  # data_type = "proba"
   
   # Create directories
   table_fold_path_month <- paste0(table_fold_path,mois,"/") 
@@ -39,14 +41,68 @@ GetGspaceTable <- function(mois,
   english_month <- df_time$english_month[df_time$mois == mois]
   
   # load raster of proba for month studied
-  list_rast <- base::list.files(path = paste0(output_path,"/niches/", type_donnees,"/"),
+  list_rast <- base::list.files(path = paste0(output_path,"/niches/", type_donnees_glm,"/"),
                                 pattern = ".tif$", 
                                 recursive = T, full.names = T)
-  # trier le mois
-  list_rast <- list_rast[grep(mois,list_rast)]
-  
   # Trier le threshold
   list_rast <- list_rast[grep("TSS",list_rast)]
+  
+  # #######
+  # name_months <- df_time$english_month[order(df_time$english_month, df_time$mois)]
+  # # ANALYSE
+  # stack_Vt <- raster::stack(list_rast[grep("Vt",list_rast)])
+  # names(stack_Vt) <-  paste0("Vt_",
+  #        unlist(lapply(name_months, function(x) paste0(x,c("_obs","_proba","_pred")))))
+  # stack_Vt_obs <- stack_Vt %>% subset(grep("obs", names(stack_Vt)))
+  # stack_Vt_obs <- dropLayer(stack_Vt_obs,4)
+  # df_Vt <- data.frame(data.table(stack_Vt_obs[]))
+  # df_Vt <- cbind(coordinates(stack_Vt_obs),df_Vt)
+  # names(df_Vt)[3:6] <- name_months[-4]
+  # df_Vt <- df_Vt %>% pivot_longer(cols=3:6, names_to = "Month",
+  #                                                  values_to = "Vt")
+  # name_months2 <- name_months[-4]
+  # stack_Co <- raster::stack(list_rast[grep("Co",list_rast)])
+  # names(stack_Co) <-  paste0("Co_",
+  #                            unlist(lapply(name_months2, function(x) paste0(x,c("_obs","_proba","_pred")))))
+  # stack_Co_obs <- stack_Co %>% subset(grep("obs", names(stack_Co)))
+  # df_Co <- data.frame(data.table(stack_Co_obs[]))
+  # df_Co  <- cbind(coordinates(stack_Co_obs),df_Co)
+  # names(df_Co)[3:6] <- name_months[-4]
+  # df_Co <- df_Co %>% pivot_longer(cols=3:6,
+  #                                 names_to = "Month",
+  #                                 values_to = "Co")
+  # df_Vt_Co <- merge(df_Vt, df_Co, by=c("x","y","Month"))
+  # df_Vt_Co <-  df_Vt_Co %>% pivot_longer(cols=4:5,
+  #                                 names_to = "Use",
+  #                                 values_to = "Obs")
+  # df_Vt_Co$Month <- factor(df_Vt_Co$Month,
+  #                             levels = c("May","June","July","August","September"))
+  # 
+  # 
+  # map_expts <- na.omit(df_Vt_Co) %>%
+  #   ggplot() +
+  #   geom_raster(aes(x = x, y = y, fill = as.factor(Obs))) +
+  #   scale_fill_manual(values = c("1" = "#FDE725FF",
+  #                                "0" = "#440154FF"),
+  #                     labels=c('Absence', 'Presence'))+
+  #   theme(panel.background = element_rect(fill="white"),
+  #         plot.background = element_rect(fill="white"),
+  #         panel.grid.major = element_line(colour="grey"),
+  #         legend.position = "right",
+  #         text = element_text(size=15),
+  #         axis.text.x = element_text(angle=45)) +
+  #   labs(fill="Probability of\noccurrence",
+  #        x="Longitude",y="Latitude")+
+  #   facet_grid(Month~Use,labeller = labeller(Use = uses.labs.obs),drop=F)+
+  #   coord_equal()
+  # png(file = paste0(table_fold_path,"/map_obs_Vt_Co.png"),width=1400, height=800)
+  # plot(map_expts)
+  # dev.off()
+  # write.csv(df_Vt_Co, paste0(table_fold_path,"xy_obs_Vt_Co.csv"))
+  # #######
+  
+  # trier le mois
+  list_rast <- list_rast[grep(mois,list_rast)]
   
   #trier les usages
   if(!is.null(usages_etudies)){
@@ -59,45 +115,33 @@ GetGspaceTable <- function(mois,
   names(stack_uses) <- unlist(lapply(uses_names, function(x) paste0(x,c("_obs","_proba","_pred"))))
   
   # conserve proba
-  stack_uses_proba <- stack_uses %>% subset(grep("proba", names(stack_uses)))
-  plot(stack_uses_proba)
-  
+  stack_uses2 <- stack_uses %>% subset(grep(data_type, names(stack_uses)))
+  plot(stack_uses2)
+
   # raster -> df
-  df_uses_proba <- data.frame(data.table(stack_uses_proba[]))
-  df_uses_proba <- cbind(coordinates(stack_uses_proba),df_uses_proba)
+  df_xy_uses <- data.frame(data.table(stack_uses2[]))
+  df_xy_uses <- cbind(coordinates(stack_uses2),df_xy_uses)
   
   # pivot
-  df_uses_proba <- df_uses_proba %>% pivot_longer(cols=ends_with("proba"),
+  df_xy_uses <- df_xy_uses %>% pivot_longer(cols=ends_with(data_type),
                                                   names_to = "Use", 
-                                                  values_to = "Proba")
+                                                  values_to = data_type)
+  
+  # Remove "obs" or "proba" radical
+  df_xy_uses$Use <- str_split(df_xy_uses$Use,'_',simplify = T)[,1]
+
   # Reordering group factor levels
-  df_uses_proba$Use <- factor(df_uses_proba$Use,      
-                              levels = paste0(c("Ni","Pa","Rp","Lk","Co","Vt") ,"_proba"))
-  
-  
-  df_uses_proba <- as.data.frame(df_uses_proba) 
+  df_xy_uses$Use <- factor(df_xy_uses$Use,      
+                              levels = paste0(c("Ni","Pa","Rp","Lk","Co","Vt")))
+  df_xy_uses <- as.data.frame(df_xy_uses) 
+
+  #names(uses.labs) <- paste0(names(uses.labs))
   
   # Plot map (G space) PROBA PRESENCE
-  map <- na.omit(df_uses_proba) %>%
-    ggplot() +
-    geom_raster(aes(x = x, y = y, fill = Proba)) +
-    scale_fill_viridis(limits=c(0,1)) +
-    theme(panel.background = element_rect(fill="white"),
-          plot.background = element_rect(fill="white"),
-          panel.grid.major = element_line(colour="grey"),
-          legend.position = "right",
-          text = element_text(size=15),
-          axis.text.x = element_text(angle=45)) +
-    labs(fill="Probability of\noccurrence", title = english_month,
-         x="Longitude",y="Latitude")+
-    facet_wrap(.~Use,labeller = labeller(Use = uses.labs),drop=F)+
-    coord_equal()
-  map
-  # si nécessaire, ne garder que certains usages sur les cartes
-  if(!is.null(usages_etudies)){
-    map <- na.omit(df_uses_proba) %>%
+  if(data_type == "proba"){
+    map <- na.omit(df_xy_uses) %>%
       ggplot() +
-      geom_raster(aes(x = x, y = y, fill = Proba)) +
+      geom_raster(aes(x = x, y = y, fill = proba)) +
       scale_fill_viridis(limits=c(0,1)) +
       theme(panel.background = element_rect(fill="white"),
             plot.background = element_rect(fill="white"),
@@ -107,54 +151,79 @@ GetGspaceTable <- function(mois,
             axis.text.x = element_text(angle=45)) +
       labs(fill="Probability of\noccurrence", title = english_month,
            x="Longitude",y="Latitude")+
-      facet_wrap(.~Use,labeller = labeller(Use = uses.labs),drop=T)+
+      facet_wrap(.~Use,labeller = labeller(Use = uses.labs),drop=F)+
       coord_equal()
   }
+  if(data_type == "obs"){
+    map <- na.omit(df_xy_uses) %>%
+      ggplot() +
+      geom_raster(aes(x = x, y = y, fill = as.factor(obs))) +
+      scale_fill_manual(values = c("1" = "#FDE725FF",
+                                   "0" = "#440154FF"),
+                        labels=c('Absence', 'Presence'))+
+      theme(panel.background = element_rect(fill="white"),
+            plot.background = element_rect(fill="white"),
+            panel.grid.major = element_line(colour="grey"),
+            legend.position = "right",
+            text = element_text(size=15),
+            axis.text.x = element_text(angle=45)) +
+      labs(fill="Observed\noccurrence",title = english_month,
+           x="Longitude",y="Latitude")+
+      facet_wrap(.~Use,labeller = labeller(Use = uses.labs),drop=F)+
+      coord_equal()
+    
+    df_xy_uses2 <- df_xy_uses
+  }
+  map
   #save plot
-  png(file = paste0(table_fold_path_month,"/map_proba_uses.png"),width=1400, height=800)
+  png(file = paste0(table_fold_path_month,"/map_",data_type,"_uses.png"),width=1400, height=800)
   plot(map)
   dev.off()
 
-  #select threshold for each use
-  df_uses_proba2 <- summary_models %>%
-    select(use,threshold_kept) %>%
-    rename(Use = use) %>%
-    mutate(Use = paste0(Use,"_proba")) %>% 
-    merge(df_uses_proba, by="Use",all=T)
-  df_uses_proba2$pres_pred <- ifelse(df_uses_proba2$Proba > df_uses_proba2$threshold,1,0)
-  
-  # Reordering group factor levels
-  df_uses_proba2$Use <- factor(df_uses_proba2$Use,      
-                              levels = paste0(c("Ni","Pa","Rp","Lk","Co","Vt") ,"_proba"))
-  
-  # Plot map (G space) PRESENCE BINERISE (pred)
-  map2 <- na.omit(df_uses_proba2) %>%
-    ggplot() +
-    geom_raster(aes(x = x, y = y, fill = as.factor(pres_pred))) +
-    scale_fill_manual(values = c("1" = "#FDE725FF",
-                                  "0" = "#440154FF"),
-                      labels=c('Absence', 'Presence')) +
-    theme(panel.background = element_rect(fill="white"),
-          plot.background = element_rect(fill="white"),
-          panel.grid.major = element_line(colour="grey"),
-          legend.position = "right",
-          text = element_text(size=15),
-          axis.text.x = element_text(angle=45)) +
-    labs(fill="Predicted of\noutcome", title = english_month,
-         x="Longitude",y="Latitude")+
-    facet_wrap(.~Use,labeller = labeller(Use = uses.labs),drop=F)+
-    coord_equal()
-  map2
-  png(file = paste0(table_fold_path_month,"/map_pred_uses.png"),width=1400, height=800)
-  plot(map2)
-  dev.off()
+  # if work with probabilities, need to make binary pres/abs with TSS threshold
+  if(data_type == "proba"){
+    #select threshold for each use
+    df_xy_uses2 <- summary_models %>%
+      dplyr::select(use,threshold_kept) %>%
+      rename(Use = use) %>%
+      mutate(Use = paste0(Use)) %>% 
+      merge(df_xy_uses, by="Use",all=T)
+    df_xy_uses2$pres_pred <- ifelse(df_xy_uses2$proba > df_xy_uses2$threshold,1,0)
+    
+    # Reordering group factor levels
+    df_xy_uses2$Use <- factor(df_xy_uses2$Use,      
+                              levels = paste0(c("Ni","Pa","Rp","Lk","Co","Vt")))
+    
+    # Plot map (G space) PRESENCE BINERISE (pred)
+    map2 <- na.omit(df_xy_uses2) %>%
+      ggplot() +
+      geom_raster(aes(x = x, y = y, fill = as.factor(pres_pred))) +
+      scale_fill_manual(values = c("1" = "#FDE725FF",
+                                   "0" = "#440154FF"),
+                        labels=c('Absence', 'Presence')) +
+      theme(panel.background = element_rect(fill="white"),
+            plot.background = element_rect(fill="white"),
+            panel.grid.major = element_line(colour="grey"),
+            legend.position = "right",
+            text = element_text(size=15),
+            axis.text.x = element_text(angle=45)) +
+      labs(fill="Predicted of\noutcome", title = english_month,
+           x="Longitude",y="Latitude")+
+      facet_wrap(.~Use,labeller = labeller(Use = uses.labs),drop=F)+
+      coord_equal()
+    map2
+    png(file = paste0(table_fold_path_month,"/map_pred_uses.png"),width=1400, height=800)
+    plot(map2)
+    dev.off()
+  }
+
   # save df
-  df_uses_proba2$Month <- english_month
+  df_xy_uses2$Month <- english_month
   # make different name if not on all uses
-  df_name <- paste0("/df_coords_proba_uses",paste0(usages_etudies,collapse="_"),".csv")
-  write.csv(df_uses_proba2, paste0(table_fold_path_month,df_name))
+  df_name <- paste0("/df_coords_",data_type,"_uses",paste0(usages_etudies,collapse="_"),".csv")
+  write.csv(df_xy_uses2, paste0(table_fold_path_month,df_name))
   
-  return(df_uses_proba2)
+  return(df_xy_uses2)
 }
 
 
@@ -163,7 +232,7 @@ GetGspaceTable <- function(mois,
 GetEspaceTableGlob <- function(mois,
                                usages_etudies = NULL, #si on veut une sélection d'usages particulière, 
                                # de base, la fonction fait pour tous les usages rencontrés le mois étudié
-                               type_donnees = "brute",
+                               type_donnees_glm = "brute",
                                fit = "all_simple",
                                algorithme = "glm"){ # or "summer"
   # # TEST
@@ -284,7 +353,9 @@ f_hex <- function(df2, u){
 f_hex_month <- function(mois_run, df){
   # # TEST
   # mois_run <- "July"
-  # df <- test
+  # df <- df_proba_PCA_xy
+  # 
+  # head(df)
   
   # Pour un mois donné, tableau avec tous les usages
   test_all <- df %>%
@@ -325,7 +396,7 @@ f_hex_month <- function(mois_run, df){
   # }
   hex_uses <- lapply(3:dim(test_all)[2], function(x) f_hex(df2=test_all, u=x))
   
-  hex_uses <- Reduce(function(x,y) merge(x = x, y = y, by = c('PCA1','PCA2','Month','n','cid')), 
+  hex_uses <- Reduce(function(x,y) merge(x = x, y = y, by = c('PCA1','PCA2','n','cid')), 
                      hex_uses)
   
   hex_uses <- hex_uses %>%
@@ -333,6 +404,9 @@ f_hex_month <- function(mois_run, df){
                  names_to = "Use" ,values_to = "median_proba") %>%
     pivot_longer(cols=ends_with("_proba_pred"),
                  names_to = "Use2" ,values_to = "pred")
+  
+  hex_uses$Month <- mois_run
+  
   return(hex_uses)
 }
 
@@ -401,6 +475,8 @@ Create.Plots.Monthly <- function(){
   plot(plot_allMonths_pred_G)
   dev.off()
   
+  str(as.data.frame(as.data.table(df_proba_PCA_xy)))
+  
   # Faire tourner les fonctions qui font un summary des proba utilisable pour hex
   df_hex_uses <- lapply(as.character(unique(df_proba_PCA_xy$Month)), 
                         function(x) f_hex_month(df=df_proba_PCA_xy, mois_run=x))
@@ -433,7 +509,7 @@ Create.Plots.Monthly <- function(){
   plot(plot_allMonths_pred_E)
   dev.off()
   
-  # Plot density of geographic pixels summarized in E space
+  # Plot density of geographics summarized in E space
   P <- ggplot(df_hex_uses) +
     geom_hex(aes(x = PCA1, y = PCA2, fill = n),
              stat = "identity", 
@@ -530,7 +606,8 @@ Create.Plots.Summer <- function(){
   # Aggregate geographic pixels values in E space
   xbnds <- range(c(df_PCA_pred$PCA1), na.rm = T)
   ybnds <- range(c(df_PCA_pred$PCA2), na.rm = T)
-  nbins <- 60
+  #nbins <- 60
+  nbins <- 100
   # rename PCA axis
   df_for_hex <- df_PCA_pred %>%
     #dplyr::select(-c(x,y)) %>%
@@ -676,16 +753,16 @@ makePaire <- function(df, mois_run,space){
 # Espace de travail
 wd <- getwd()
 # Arguments pour le choix du modèle à utiliser
-type_donnees <- "brute"
+type_donnees_glm <- "brute"
 algorithme <- "glm"
 fit <- "all_simple"
 # Dossier des outputs (dans le git)
 output_path <- paste0(wd,"/output/")
 gitCaractMilieu <- "C:/Users/perle.charlot/Documents/PhD/DATA/R_git/CaractMilieu"
 input_path <- paste0(wd,"/input/")
-table_fold_path <- paste0(output_path,"/niches/",type_donnees,"/niche_overlap/",
+table_fold_path <- paste0(output_path,"/niches/",type_donnees_glm,"/niche_overlap/",
                           fit,"/",algorithme,"/tables_pres/")
-path_summary_models <- paste0(output_path,"/niches/",type_donnees,
+path_summary_models <- paste0(output_path,"/niches/",type_donnees_glm,
                               "/summary_model_kept.csv")
 #### Données spatiales ####
 dos_var_sp <- "C:/Users/perle.charlot/Documents/PhD/DATA/Variables_spatiales_Belledonne/"
@@ -714,11 +791,7 @@ corresp_col <- data.frame(dim_name = c(liste.dim,"toutes"),
 # Labels names for plots
 uses.labs <- c("Nesting","Sheep Grazing","Hiking",
                "Lek","Sheep Night Camping" ,"Mountain Bike")
-names(uses.labs) <- paste0(c("Ni","Pa","Rp","Lk","Co","Vt") ,"_proba")
-# nouveaux labels
-uses.labs2 <- uses.labs
-names(uses.labs2) <- paste0(names(uses.labs2),"_pred")
-
+names(uses.labs) <- paste0(c("Ni","Pa","Rp","Lk","Co","Vt"))
 
 labs.env <- c("Biomass","Abiotic Conditions","Spatial Context",
               "Dynamic","Infrastructure" ,"Vegetation Physionomy")
@@ -735,36 +808,76 @@ col_dim <- merge(rbind(table_variables, table_variable_dummies),
                  corresp_col,by.x="Dimension", by.y="dim_name")
 
 # Construction ou lecture des tables de présence #
-t = try(as.data.frame(fread(paste0(table_fold_path,"/df_PCA_glob_proba_xy_all_months.csv"),drop="V1")),
+
+# 1 - E space (indpdt proba ou obs)
+t = try(as.data.frame(fread(paste0(table_fold_path,"/df_PCA_glob_xy_all_months.csv"),drop="V1")),
         silent = TRUE)
 if(inherits(t, "try-error")){
-  # 1 - G tables
-  df_proba_uses <- as.data.frame(do.call(rbind,lapply(liste.mois, function(x) GetGspaceTable(mois=x))))
-  write.csv(df_proba_uses,paste0(table_fold_path,"/df_proba_uses_xy_all_months.csv"))
-  # 2 - E tables
   df_PCA_glob <- as.data.frame(do.call(rbind,lapply(liste.mois, function(x) GetEspaceTableGlob(mois=x))))
   write.csv(df_PCA_glob,paste0(table_fold_path,"/df_PCA_glob_xy_all_months.csv"))
-  # 3 - merge
-  df_proba_PCA_xy <- merge(df_proba_uses,df_PCA_glob, by=c("x","y","Month"),all=T)
-  df_proba_PCA_xy$Month <- factor(df_proba_PCA_xy$Month,      
-                                  levels = c("May","June","July",
-                                             "August","September"))
-  write.csv(df_proba_PCA_xy,paste0(table_fold_path,"/df_PCA_glob_proba_xy_all_months.csv"))
-}else {df_proba_PCA_xy <- as.data.frame(fread(paste0(table_fold_path,"/df_PCA_glob_proba_xy_all_months.csv"),drop="V1"))}
+} else{
+  df_PCA_glob <- as.data.frame(fread(paste0(table_fold_path,"/df_PCA_glob_xy_all_months.csv"),drop="V1"))
+  }
 
-# Reordering group factor levels
-df_proba_PCA_xy$Use <- factor(df_proba_PCA_xy$Use,      
-                              levels = paste0(c("Ni","Pa","Rp","Lk","Co","Vt") ,"_proba"))
-df_proba_PCA_xy$Month <- factor(df_proba_PCA_xy$Month,      
-                                levels = c("May","June","July","August","September"))
-df_proba_PCA_xy <- na.omit(df_proba_PCA_xy)
+# 2 - G space
+#   a - proba
+t = try(as.data.frame(fread(paste0(table_fold_path,"/df_proba_uses_xy_all_months.csv"),drop="V1")),
+        silent = TRUE)
+if(inherits(t, "try-error")){
+  df_uses_proba <- as.data.frame(do.call(rbind,lapply(liste.mois, 
+                                                      function(x) GetGspaceTable(mois=x,
+                                                                                 data_type="proba"))))
+  write.csv(df_uses_proba ,paste0(table_fold_path,"/df_proba_uses_xy_all_months.csv"))
+}else{
+  df_uses_proba <- as.data.frame(fread(paste0(table_fold_path,"/df_proba_uses_xy_all_months.csv"),drop="V1"))
+}
+#   b - obs
+t = try(as.data.frame(fread(paste0(table_fold_path,"/df_obs_uses_xy_all_months.csv"),drop="V1")),
+        silent = TRUE)
+if(inherits(t, "try-error")){
+  df_uses_obs <- as.data.frame(do.call(rbind,lapply(liste.mois, 
+                                                      function(x) GetGspaceTable(mois=x,
+                                                                                 data_type="obs"))))
+  write.csv(df_uses_obs,paste0(table_fold_path,"/df_obs_uses_xy_all_months.csv"))
+}else{
+  df_uses_obs <- as.data.frame(fread(paste0(table_fold_path,"/df_obs_uses_xy_all_months.csv"),drop="V1"))
+}
+  
+# 3 - merge E space - G space proba - G space obs ?
+t = try(as.data.frame(fread(paste0(table_fold_path,"/df_PCA_glob_proba_obs_xy_all_months.csv"),drop="V1")),
+        silent = TRUE)
+if(inherits(t, "try-error")){
+  df_proba_PCA_xy <- merge(df_uses_proba,df_PCA_glob, by=c("x","y","Month"),all=T)
+  df_proba_PCA_xy <- na.omit(df_proba_PCA_xy)
+  df_obs_PCA_xy <- merge(df_uses_obs,df_PCA_glob, by=c("x","y","Month"),all=T)
+  df_obs_PCA_xy <- na.omit(df_obs_PCA_xy)  
+  df_proba_obs_PCA_xy <- merge(df_proba_PCA_xy, df_obs_PCA_xy, by=c("x","y","Month","Use","PCA1","PCA2"))
+  write.csv(df_proba_obs_PCA_xy,paste0(table_fold_path,"/df_PCA_glob_proba_obs_xy_all_months.csv"))
+}else{
+  df_proba_obs_PCA_xy <- as.data.frame(fread(paste0(table_fold_path,"/df_PCA_glob_proba_obs_xy_all_months.csv"),drop="V1"))
+}
+
+df_proba_obs_PCA_xy$Month <- factor(df_proba_obs_PCA_xy$Month,      
+                                    levels = c("May","June","July",
+                                               "August","September"))
+# TODO
+# 4 - display in E and G spaces
+
+# TODO
+# 5 - compute overlaps
+#   a - with proba
+#   b - with obs
+
+# TODO : 
+# - dans Create.Plots.Monthly, ajouter un argument en proba ou obs pour calculer chvch
 
 ### Plots des proba dans espaces G et E ####
 
 ## find the bounds for the complete data 
 xbnds <- range(c(df_proba_PCA_xy$PCA1), na.omit=T)
 ybnds <- range(c(df_proba_PCA_xy$PCA2), na.omit=T)
-nbins <- 60
+#nbins <- 60
+nbins <- 100
 
 Create.Plots.Monthly()
 
@@ -848,7 +961,7 @@ corresp_classif_paire <- rbind(d1,d2)
 
 
 # au global (tous les mois mélanges, toutes les paires)
-df_overlap_monthly %>%
+plot_chvch_glob <- df_overlap_monthly %>%
   ggplot(aes(x=overlap_G, y = overlap_E)) +
   geom_point() +
   ylim(0,1)+
@@ -859,6 +972,29 @@ df_overlap_monthly %>%
         panel.background = element_rect(fill="white"),
         plot.background = element_rect(fill="white"),
         panel.grid.major = element_line(colour="grey"))
+plot_chvch_glob
+
+#save plot
+png(file = paste0(table_fold_path,"/global_overlap.png"),width=1400, height=800)
+plot(plot_chvch_glob)
+dev.off()
+
+
+Pmonth <- df_overlap_monthly %>%
+  ggplot(aes(x=overlap_G, y = overlap_E, col=Month)) +
+  geom_point() +
+  ylim(0,1)+
+  geom_abline(intercept = 0, slope = 1) +
+  labs(x = "Intensity of Geographic Overlap",
+       y = "Ecological Similarity") +
+  theme(text = element_text(size=18),
+        panel.background = element_rect(fill="white"),
+        plot.background = element_rect(fill="white"),
+        panel.grid.major = element_line(colour="grey"))
+png(file = paste0(table_fold_path,"/global_overlap_colorMonth.png"),width=1400, height=800)
+plot(Pmonth)
+dev.off()
+
 # TODO : comparer si on trouve une diff avec le graph summer
 # normalement il devrait y avoir moins de points sur l'autre,
 # mais est-ce que même tendance ?
@@ -919,8 +1055,8 @@ df_overlap_monthly %>%
         panel.grid.major = element_line(colour="grey"))
 
 # par paire
-df_overlap_monthly %>%
-  ggplot(aes(x=overlap_G, y = overlap_E)) +
+plot_chvch_bypaire <- df_overlap_monthly %>%
+  ggplot(aes(x=overlap_G, y = overlap_E, col=Month)) +
   geom_point() +
   geom_abline(intercept = 0, slope = 1) +
   labs(x = "Intensity of Geographic Overlap",
@@ -931,11 +1067,18 @@ df_overlap_monthly %>%
         plot.background = element_rect(fill="white"),
         panel.grid.major = element_line(colour="grey"))
   
-  
+png(file = paste0(table_fold_path,"/bypair_overlap.png"),width=1400, height=800)
+plot(plot_chvch_bypaire)
+dev.off()
 
 
 
+df_overlap_monthly
+df_overlap_monthly2
 
+write.csv(df_overlap_monthly,paste0(table_fold_path,"/df_overlap_monthly.csv"))
+
+  write.csv(df_overlap_monthly2,paste0(table_fold_path,"/df_overlap_monthly2.csv"))
 
 
 # TODO
@@ -955,3 +1098,52 @@ df_hex_uses <- fread(paste0(table_fold_path,"/df_pred_ACP_sumtimes.csv"),drop="V
 
 
 
+
+
+# Analyse points extrêmes ######
+head(df_Vt_Co)
+
+df <- df_proba_PCA_xy %>% 
+  dplyr::select('x','y','Month','PCA1','PCA2') %>%
+  distinct()
+df_Vt_Co2 <- merge(df_Vt_Co, df, by=c("x","y","Month"))
+
+xbnds <- range(c(df_Vt_Co2$PCA1), na.omit=T)
+ybnds <- range(c(df_Vt_Co2$PCA2), na.omit=T)
+#nbins <- 60
+nbins <- 100
+
+
+df_Vt_Co2$Month <- factor(df_Vt_Co2$Month,
+                          levels = c("May","June","July","August","September"))
+
+
+
+
+test <- na.omit(df_Vt_Co2) %>%
+  ggplot() +
+  stat_summary_hex(aes(x=PCA1, y=PCA2, z= Obs),
+                   #fun = function(x) sum(x), 
+                   bins=60,
+                   colour='grey'
+  )+
+  scale_fill_viridis(na.value = "transparent",
+                     limits=c(0,1)) +
+  geom_hline(yintercept = 0,linetype="dashed")+
+  geom_vline(xintercept = 0,linetype="dashed") +
+  facet_grid(Use~ Month,labeller = labeller(Use = uses.labs.obs),drop=F)+
+  labs(title = "Mean Observed Occurrence projected in Ecological Space"
+       #fill = "Median probability\nof occurrence"
+  )+
+  coord_equal()+
+  theme(text = element_text(size=18),
+        panel.background = element_rect(fill="white"),
+        plot.background = element_rect(fill="white"),
+        panel.grid.major = element_line(colour="grey"))
+
+png(file = paste0(table_fold_path,"/Vt_Co_Espace2.png"),
+    width=2100, height=1200)
+plot(test)
+dev.off()
+
+######
