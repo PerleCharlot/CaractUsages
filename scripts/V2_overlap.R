@@ -2,7 +2,7 @@
 # Nom : Calcul indices overlap
 # Auteure : Perle Charlot
 # Date de création : 26-06-2023
-# Dates de modification : 24-07-2023
+# Dates de modification : 03-08-2023
 
 ### Librairies -------------------------------------
 library(data.table)
@@ -328,14 +328,18 @@ makeHexData <- function(df) {
              cid = h@cell)
 }
 # Compute hexagonal summary of proba for each use
-f_hex <- function(df2, u){
+f_hex <- function(df2, u,
+                  data_type,
+                  th_u = th_u){
   # # TEST
   # df2 <- test_all
-  # u <- 3
+  # u <- 4
+  # data_type = data_type
+  # th_u = th_u
   
   # Subset pour l'usage u
   A <- df2[,c(1:2,u)]
-  name_u <- names(A)[3]
+  name_u <- paste0(names(A)[3],"_",data_type)
   names(A)[3] <- "z"
   # compute grille hexagonale
   Ahex <- makeHexData(A)
@@ -351,19 +355,27 @@ f_hex <- function(df2, u){
   }
   
   # Filtrer par threshold
-  th_u <- summary_models$threshold_kept[which(substr(name_u,1,2) %in% summary_models$use)] 
+  if(is.null(th_u)){
+    th_u <- summary_models$threshold_kept[which(substr(name_u,1,2) %in% summary_models$use)] 
+  } else{th_u <- as.numeric(th_u)}
+  
   Ahex$median_proba_pres <- ifelse(Ahex$z > th_u,
                                    1,0)
   names(Ahex)[3] <- name_u
   names(Ahex)[dim(Ahex)[2]] <- paste0(name_u,"_pred")
+  
+  Ahex <- as.data.frame(Ahex)
+  head(Ahex)
+  
   return(Ahex)
 }
 # Fonction qui retourne une table, pour un mois donné, des valeurs env aggrégés
-f_hex_month <- function(mois_run, df, data_type){
-  # # TEST
+f_hex_month <- function(mois_run, df, data_type, th_u = th_u){
+  # # # TEST
   # mois_run <- "July"
-  # df <- df
-  # data_type <- "obs"
+  # df=df
+  # data_type = "proba"
+  # th_u = NULL
 
   head(df)
   
@@ -377,61 +389,80 @@ f_hex_month <- function(mois_run, df, data_type){
   head(test_all)
   
   # compute summary stat for hexagonal grid
-  hex_uses <- lapply(3:dim(test_all)[2], function(x) f_hex(df2=test_all, u=x))
-  
-  hex_uses <- Reduce(function(x,y) merge(x = x, y = y, 
-                                         by = c('PCA1','PCA2','n','cid','Month')), 
-                     hex_uses)
+  hex_uses <- lapply(3:dim(test_all)[2], function(x) f_hex(df2=test_all, 
+                                                           u=x, th_u = th_u,
+                                                           data_type = data_type))
 
-  
+  hex_uses <- Reduce(function(x,y) merge(x = x, y = y, 
+                                         all=T,
+                                         by = c('PCA1','PCA2',
+                                                'n',
+                                                #'Month',
+                                                'cid' )), 
+                     hex_uses)
   if(data_type == "proba"){
-    hex_proba <- hex_uses %>%
-      pivot_longer(cols=names(test_all)[-c(1,2)],
-                   names_to = "Use" ,values_to = "median_proba") %>%
-      dplyr::select(-c(ends_with("_pred")))
+    
+    # hex_proba <- hex_uses %>%
+    #   pivot_longer(cols=names(test_all)[-c(1,2)],
+    #                names_to = "Use" ,values_to = "median_proba") %>%
+    #   dplyr::select(-c(ends_with("_pred")))
+    
+    
+    hex_proba1 <- hex_uses %>%
+      dplyr::select(-c(ends_with("_proba_pred"))) 
+    hex_proba <- hex_proba1 %>%
+      pivot_longer(cols=ends_with("_proba"),
+                   names_to = "Use" ,values_to = "median_proba")
+    #make use a 2 letters string 
+    hex_proba$Use <- substr(hex_proba$Use,1,2)
+    
 
     hex_pred <- hex_uses %>%
-      pivot_longer(cols=ends_with("_pred"),
+      dplyr::select(-c(ends_with("_proba"))) %>%
+      pivot_longer(cols=ends_with("_proba_pred"),
                    names_to = "Use" ,values_to = "pred")
-    hex_pred <- hex_pred %>%
-      dplyr::select(-c(6:(dim(hex_pred)[2]-2)))
     hex_pred$Use <- substr(hex_pred$Use,1,2)
-    
-    hex_f <- merge(hex_proba, hex_pred, by=c('PCA1','PCA2','n','cid','Month','Use'))
-  }
-  
 
-  
+    # hex_pred <- hex_pred %>%
+    #   dplyr::select(-c(6:(dim(hex_pred)[2]-2)))
+    
+    hex_f <- merge(hex_proba, hex_pred, by=c('PCA1','PCA2','n','cid',
+                                             #'Month',
+                                             'Use'))
+  }
   
   if(data_type == "obs"){
     hex_f <- hex_uses %>% 
-      dplyr::select(-ends_with("_pred")) %>%
-      pivot_longer(cols=names(test_all)[-c(1,2)],
+      dplyr::select(-ends_with("_obs")) %>%
+      pivot_longer(cols=ends_with("_obs_pred"),
                    names_to = "Use" ,values_to = "median_obs") %>%
       mutate(median_obs_round = round.off(median_obs))
+    hex_f$Use <- substr(hex_f$Use,1,2)
   }
-  
   hex_f$Month <- mois_run
-  
   return(hex_f)
 }
 
 # crée les figures :
 # - G space : probabilité et prédiction binaires, 6 uses X 5 mois
 # - E space : probabilité et prédiction binaires, 6 uses X 5 mois
-Create.Plots.Monthly <- function(df, nbins){
+Create.Plots.Monthly <- function(df){
   # # TEST
   # df <- df_proba_obs_PCA_xy
   # nbins <- 100
-  
   
   folder_summ_plots <- paste0(table_fold_path,"/montly_plots/") 
   if(!dir.exists(folder_summ_plots)){dir.create(folder_summ_plots, recursive = T)}
   
   
-  xbnds <- range(c(df$PCA1), na.rm=T)
-  ybnds <- range(c(df$PCA2), na.rm=T)
+  # xbnds <- range(c(df$PCA1), na.rm=T)
+  # ybnds <- range(c(df$PCA2), na.rm=T)
 
+  # # FOCUS sur 3 usages sur 1 mois
+  # df <- df %>%
+  #   filter(Month == 'July') %>%
+  #   filter(Use == 'Co' |Use == 'Rp' | Use == 'Vt')
+  
   # For all uses, across months, probabilities, in E space
   # color : yellow - violet
   plot_allMonths_proba_E <- na.omit(df) %>%
@@ -442,17 +473,22 @@ Create.Plots.Monthly <- function(df, nbins){
                        limits=c(0,1)) +
     geom_hline(yintercept = 0,linetype="dashed")+
     geom_vline(xintercept = 0,linetype="dashed") +
-    facet_grid(Month ~ Use, scales = "free",labeller = labeller(Use = uses.labs))+
+    facet_grid(Month ~ Use, 
+               #scales = "free",
+               space="fixed",
+               labeller = labeller(Use = uses.labs))+
     labs(title = "Probability of Occurrence projected in Ecological Space",
          fill = "Median probability\nof occurrence")+
     theme(text = element_text(size=18),
           panel.background = element_rect(fill="white"),
           plot.background = element_rect(fill="white"),
           panel.grid.major = element_line(colour="grey"))
+  
   png(file = paste0(folder_summ_plots,"/proba_E_space_across_months_uses.png"),
       width=2100, height=1200)
   plot(plot_allMonths_proba_E)
   dev.off()
+  
   # color : transparent - violet
   plot_allMonths_proba_E2 <- na.omit(df) %>%
     ggplot() +
@@ -513,6 +549,7 @@ Create.Plots.Monthly <- function(df, nbins){
       width=2100, height=1200)
   plot(plot_allMonths_obs_E2)
   dev.off()
+  
   # density obs
   plot_allMonths_obs_E3 <- na.omit(df) %>%
     ggplot() +
@@ -522,7 +559,7 @@ Create.Plots.Monthly <- function(df, nbins){
     # scale_fill_viridis(na.value = "transparent",
     #                    limits=c(0,1))+
     scale_fill_gradient(low = alpha("red", 0),
-                        name = "Density of observed\noccurrence",
+                        name = "Mean of observed\noccurrence",
                         #limits=c(0,1)
                         high = "red",
                         ) +
@@ -538,9 +575,11 @@ Create.Plots.Monthly <- function(df, nbins){
       width=2100, height=1200)
   plot(plot_allMonths_obs_E3)
   dev.off()
+  
 
   # For all uses, across months, probabilities, in G space
-  plot_allMonths_proba_G <- df %>%
+  plot_allMonths_proba_G <- df_proba_obs_PCA_xy %>%
+    #mutate(across(c(x,y), round)) %>%
     na.omit() %>%
     ggplot() +
     geom_tile(aes(x = x, y = y, fill = proba)) +
@@ -553,12 +592,14 @@ Create.Plots.Monthly <- function(df, nbins){
           axis.text.x = element_text(angle=45)) +
     labs(fill="Probability of\noccurrence",
          x="Longitude",y="Latitude")+
-    facet_grid(Month ~ Use,labeller = labeller(Use = uses.labs),drop=F)+
+    facet_grid(Month ~ Use,labeller = labeller(Use = uses.labs),drop=T)+
     coord_equal()
+  
   png(file = paste0(folder_summ_plots,"/proba_G_space_across_months_uses.png"),
       width=2100, height=1200)
   plot(plot_allMonths_proba_G)
   dev.off()
+  
   # For all uses, across months, prediction of presence/absence, in G space
   plot_allMonths_pred_G <- na.omit(df) %>%
     ggplot() +
@@ -605,12 +646,17 @@ Create.Plots.Monthly <- function(df, nbins){
   #### Projection G -> E ####
   ## En proba
   # Faire tourner les fonctions qui font un summary des proba utilisable pour hex
+
   df_hex_uses <- lapply(as.character(unique(df$Month)), 
-                        function(x) f_hex_month(df=df, mois_run=x, data_type = "proba"))
+                        function(x) f_hex_month(df=df, 
+                                                mois_run=x, 
+                                                data_type = "proba",
+                                                th_u = NULL))
   df_hex_uses <- do.call(rbind, df_hex_uses)
   ## En obs
   df_hex_uses_obs <- lapply(as.character(unique(df$Month)), 
-                        function(x) f_hex_month(df=df, mois_run=x, data_type = "obs"))
+                        function(x) f_hex_month(df=df, mois_run=x, 
+                                                data_type = "obs", th_u=NULL))
   df_hex_uses_obs <- do.call(rbind, df_hex_uses_obs)
   # Merge proba, pred and obs
   df_hex_obs_proba_pred <- merge(df_hex_uses_obs,  df_hex_uses,
@@ -624,23 +670,31 @@ Create.Plots.Monthly <- function(df, nbins){
   
   ##  plot the results (all uses across months)
   plot_allMonths_pred_E <- ggplot(df_hex_obs_proba_pred) +
-    geom_hex(aes(x = PCA1, y = PCA2, fill = as.factor(pred)),
+    geom_hex(aes(x = PCA1, y = PCA2, 
+                 #fill = as.factor(pred)
+                 fill = pred
+                 ),
              stat = "identity", alpha = 0.8,colour='grey') +
-    scale_fill_manual(values = c("1" = "#FDE725FF",
-                                 "0" = "#440154FF"),
-                      labels=c('Absence', 'Presence')) +
-    # scale_fill_viridis(limits=c(0,1)) +
+    # scale_fill_manual(values = c("1" = "#FDE725FF",
+    #                              "0" = "#440154FF"),
+    #                   labels=c('Absence', 'Presence')) +
+    scale_fill_viridis(limits=c(0,1)) +
     geom_hline(yintercept = 0,linetype="dashed")+
     geom_vline(xintercept = 0,linetype="dashed") +
-    labs(title = "Probability of Occurrence projected in Ecological Space",
+    labs(
+      #title = "Probability of Occurrence projected in Ecological Space",
+         title = "Binarised Probability of Occurrence",
          fill = "Predicted\noutcome")+
-    facet_grid(Month ~ Use, scales = "free",
+    facet_grid(Month ~ Use, 
+               #scales = "free",
                labeller = labeller(Use = uses.labs)
     ) +
     theme(text = element_text(size=18),
           panel.background = element_rect(fill="white"),
           plot.background = element_rect(fill="white"),
-          panel.grid.major = element_line(colour="grey"))
+          legend.position = "none",
+          panel.grid.major = element_line(colour="grey"))+
+    coord_equal()
   plot_allMonths_pred_E
   # Save figure
   png(file = paste0(folder_summ_plots,"/pred_E_space_across_months_uses.png"),
@@ -660,15 +714,20 @@ Create.Plots.Monthly <- function(df, nbins){
     #                     limits=c(0,1)) +
     geom_hline(yintercept = 0,linetype="dashed")+
     geom_vline(xintercept = 0,linetype="dashed") +
-    labs(title = "Observed Occurrence projected in Ecological Space",
+    labs(
+      #title = "Observed Occurrence projected in Ecological Space",
+         title = "Binarised Observed Occurrence",
          fill = "Median Observed\nOccurrence")+
-    facet_grid(Month ~ Use, scales = "free",
+    facet_grid(Month ~ Use, 
+               #scales = "free",
                labeller = labeller(Use = uses.labs)
     ) +
     theme(text = element_text(size=18),
           panel.background = element_rect(fill="white"),
           plot.background = element_rect(fill="white"),
-          panel.grid.major = element_line(colour="grey"))
+          legend.position = "none",
+          panel.grid.major = element_line(colour="grey"))+
+    coord_equal()
   plot_allMonths_obs_E
   # Save figure
   png(file = paste0(folder_summ_plots,"/obs_E_space_across_months_uses_grid100.png"),
@@ -698,6 +757,143 @@ Create.Plots.Monthly <- function(df, nbins){
       width=2100, height=1200)
   plot(P)
   dev.off()
+  
+  # # FOCUS 3 uses
+  # run <- function(seuil){
+  #   # #TEST
+  #   # seuil <- "0.6"
+  #   seuil <- NULL
+  # 
+  #   
+  #   df_hex_uses <- f_hex_month(df=df, mois_run='July', data_type = "proba",th_u =seuil)
+  #   df_hex_uses_obs <- f_hex_month(df=df, mois_run='July', data_type = "obs",th_u =seuil)
+  #       
+  #   df_hex_uses <- f_hex_month(df=df, mois_run='July', data_type = "proba",th_u =seuil)
+  #   df_hex_uses_obs <- f_hex_month(df=df, mois_run='July', data_type = "obs",th_u =seuil)
+  #   df_hex_obs_proba_pred <- merge(df_hex_uses_obs,  df_hex_uses,
+  #                                  by=c('PCA1','PCA2','n','cid','Month','Use'))
+  #   
+  #   test_overlay <- df_hex_obs_proba_pred %>%
+  #     dplyr::select(-median_proba) %>%
+  #     pivot_wider(names_from = "Use",
+  #                 values_from = paste0("pred"))
+  #   
+  #   test_overlay <- test_overlay %>%
+  #     mutate(overlay_Co_Vt = Vt + Co,
+  #            overlay_Co_Rp = Rp + Co)
+  # 
+  #   test_overlay <- test_overlay %>%
+  #     pivot_longer(cols = c('Co','Rp','Vt'), 
+  #                  names_to = "Use",
+  #                  values_to = 'pred')
+  #   test_overlay$Use <- factor(test_overlay$Use,      
+  #                                       levels = c("Ni","Pa","Rp","Lk","Co","Vt"))
+  #   
+  #   # regarder les probas des pixels où overlay = 2
+  #   A <- test_overlay %>%
+  #           dplyr::select(PCA1,PCA2,n,cid,overlay_Co_Vt)
+  #   B <- df_hex_obs_proba_pred %>%
+  #     dplyr::select(PCA1,PCA2,n,cid,Use, median_proba)
+  #   C <- merge(A,B,by=c('PCA1','PCA2','n','cid'))
+  #   D <- C %>%
+  #     distinct() %>%
+  #     pivot_wider(names_from = 'Use',values_from = 'median_proba')
+  #   D[order(D$overlay_Co_Vt, decreasing = T),]
+  #   
+  #   
+  #   
+  #   P_proba <- df_hex_obs_proba_pred %>%
+  #     na.omit() %>%
+  #     ggplot() +
+  #     geom_hex(aes(x = PCA1, y = PCA2, fill = median_proba),
+  #              stat = "identity", alpha = 0.8,colour='grey') +
+  #     scale_fill_viridis(na.value = "transparent",
+  #                        limits=c(0,1)) +
+  #     facet_grid(Month ~ Use, 
+  #                labeller = labeller(Use = uses.labs)
+  #     )+
+  #     geom_hline(yintercept = 0,linetype="dashed")+
+  #     geom_vline(xintercept = 0,linetype="dashed") +
+  #     labs(
+  #       title = "Modelled Probability Occurrence",
+  #       fill = "Median probability\noccurrence")+
+  #     theme(text = element_text(size=18),
+  #           panel.background = element_rect(fill="white"),
+  #           plot.background = element_rect(fill="white"),
+  #           panel.grid.major = element_line(colour="grey"))+
+  #     coord_equal()
+  #   
+  #   
+  #   P_pred <- test_overlay %>%
+  #     na.omit() %>%
+  #     ggplot() +
+  #     geom_hex(aes(x = PCA1, y = PCA2, fill = pred),
+  #              stat = "identity", alpha = 0.8,colour='grey') +
+  #     scale_fill_gradientn(colours = viridis(3))+
+  #     facet_grid(Month ~ Use, 
+  #                labeller = labeller(Use = uses.labs)
+  #     )+
+  #     geom_hline(yintercept = 0,linetype="dashed")+
+  #     geom_vline(xintercept = 0,linetype="dashed") +
+  #     labs(
+  #       title = paste0("Binarised Predicted Occurrence - Threshold ",seuil),
+  #       fill = "Predicted Occurrence")+
+  #     theme(text = element_text(size=18),
+  #           panel.background = element_rect(fill="white"),
+  #           plot.background = element_rect(fill="white"),
+  #           panel.grid.major = element_line(colour="grey"))+
+  #     coord_equal()
+  #   
+  #   P <- P_proba +
+  #     P_pred +
+  #     plot_layout(ncol=1)
+  #   
+  #   png(file = paste0(folder_summ_plots,"/focus/",seuil,"_proba_pred.png"),
+  #       width=2100, height=1200)
+  #   plot(P)
+  #   dev.off()
+  #   
+  #   
+  #   P_Co_Vt <- ggplot(test_overlay) +
+  #     geom_hex(aes(x = PCA1, y = PCA2, fill = overlay_Co_Vt),
+  #              stat = "identity", alpha = 0.8,colour='grey') +
+  #     scale_fill_gradientn(colours = viridis(3), na.value='transparent')+
+  #     geom_hline(yintercept = 0,linetype="dashed")+
+  #     geom_vline(xintercept = 0,linetype="dashed") +
+  #     labs(
+  #       title = "Sheep Night Camping and Mountain Bike",
+  #       fill = "Overlay Binarised\nPredicted Occurrence")+
+  #     theme(text = element_text(size=18),
+  #           panel.background = element_rect(fill="white"),
+  #           plot.background = element_rect(fill="white"),
+  #           panel.grid.major = element_line(colour="grey"))+
+  #     coord_equal()
+  #   
+  #   P_Co_Rp <- test_overlay %>%
+  #     mutate(overlay_Co_Rp = as.integer(overlay_Co_Rp)) %>%
+  #     ggplot() +
+  #     geom_hex(aes(x = PCA1, y = PCA2, fill = overlay_Co_Rp),
+  #              stat = "identity", alpha = 0.8,colour='grey') +
+  #     scale_fill_gradientn(colours = viridis(3), na.value='transparent')+
+  #     geom_hline(yintercept = 0,linetype="dashed")+
+  #     geom_vline(xintercept = 0,linetype="dashed") +
+  #     labs(
+  #       title = "Sheep Night Camping and Hiking",
+  #       fill = "Overlay Binarised\nPredicted Occurrence")+
+  #     theme(text = element_text(size=18),
+  #           panel.background = element_rect(fill="white"),
+  #           plot.background = element_rect(fill="white"),
+  #           panel.grid.major = element_line(colour="grey"))+
+  #     coord_equal()
+  #   
+  #   P2 <- P_Co_Vt + P_Co_Rp
+  #   
+  #   png(file = paste0(folder_summ_plots,"/focus/",seuil,"_overlay.png"),
+  #       width=2100, height=1200)
+  #   plot(P2)
+  #   dev.off()
+  # }
+  # lapply(c(0.45,0.5,0.55,0.6), run)
   
   # Save csv to compute overlap
   write.csv(df_hex_obs_proba_pred,paste0(table_fold_path,"/df_obs_proba_pred_ACP_months.csv"))
@@ -853,7 +1049,7 @@ Create.Plots.Summer <- function(){
 ComputeOverlap <- function(table_pres_abs, liste_u1_u2){
   # # TEST
   # table_pres_abs <- df_4O_run
-  # liste_u1_u2 <- c("Lk","Rp")
+  # liste_u1_u2 <- c("Co","Lk")
   
   nom_u1 <- liste_u1_u2[1]
   nom_u2 <- liste_u1_u2[2]
@@ -861,14 +1057,25 @@ ComputeOverlap <- function(table_pres_abs, liste_u1_u2){
   A_u1 <- sum(table_pres_abs[,grep(nom_u1, names(table_pres_abs))], na.omit=T)
   A_u2 <- sum(table_pres_abs[,grep(nom_u2, names(table_pres_abs))], na.omit=T)
   
-  table_pres_abs$inter <- table_pres_abs[, grep(nom_u1, names(table_pres_abs))] + 
-    table_pres_abs[, grep(nom_u2, names(table_pres_abs))]
-  
-  A_u1_inter_u2 <- as.numeric(table(table_pres_abs$inter)["2"])
-  
-  overlap_u1 <- A_u1_inter_u2/A_u1
-  overlap_u2 <- A_u1_inter_u2/A_u2
-  
+  # séparer un NA d'absence d'un NA de 0 area commune
+  if(any(
+    c(is.na(A_u1),is.na(A_u2))
+    )){
+    overlap_u1 <-  overlap_u2 <- A_u1_inter_u2 <- NA
+  }else{
+    table_pres_abs$inter <- table_pres_abs[, grep(nom_u1, names(table_pres_abs))] + 
+      table_pres_abs[, grep(nom_u2, names(table_pres_abs))]
+    
+    A_u1_inter_u2 <- as.numeric(table(table_pres_abs$inter)["2"])
+    
+    if(is.na(A_u1_inter_u2)){
+      overlap_u1 <-  overlap_u2 <- A_u1_inter_u2 <- 0
+    }else{
+      overlap_u1 <- A_u1_inter_u2/A_u1
+      overlap_u2 <- A_u1_inter_u2/A_u2
+    }
+  }
+
   df_overlap <- data.frame(u1=nom_u1,
                            u2=nom_u2,
                            A_u1 = A_u1,
@@ -883,8 +1090,8 @@ ComputeOverlap <- function(table_pres_abs, liste_u1_u2){
 # Fonction qui calcule overlap pour un mois donné
 Run_ComputeOverlap_monthly <- function(df , mois_run){
   # # TEST
-  # mois_run <- 'May'
-  # df <- df_pred_PCA_4O
+  # mois_run <- 'July'
+  # df <- df_sub
   
   # Subset selon le mois
   df_4O_run <- df %>%
@@ -921,8 +1128,8 @@ makePaire <- function(df, mois_run,space){
 # Fonction qui met en forme data et calcule overlap, pour données obs ou prédiction, E or G space
 RunComputeOverlap <- function(df, data_type, space){ # "obs" or "pred" (presence predite)
   # #TEST
-  # data_type <- "pred" # "obs" "pred"
-  # df <- df_hex_obs_proba_pred
+  # data_type <- "obs" # "obs" "pred"
+  # df <- df_E
   # space <- "E"
   
   # mise en forme df
@@ -964,22 +1171,14 @@ Return.Df.Ovlp <- function(df_E,df_G, data_type){
   # # TEST
   # df_E <-  df.hex_obs_proba_pred
   # df_G <- df_proba_obs_PCA_xy
-  # data_type <- "pred"
+  # data_type <- "obs"
   
   folder_overlap_fig <- paste0(table_fold_path,"/figures_overlap/",data_type,"/") 
   if(!dir.exists(folder_overlap_fig)){dir.create(folder_overlap_fig, recursive = T)}
   
-  # liste des paires d'usages
-  df_combi <- combn(liste.usages, 2)
-  liste_paires_usages <- lapply(1:dim(df_combi)[2], function(x) paste(df_combi[,x]))
-  
   # Overlap analysis on observation
   df_Olp_G <- RunComputeOverlap(df_G,data_type ,"G")
   df_Olp_E <- RunComputeOverlap(df_E,data_type ,"E")
-  
-  # # Overlap analysis on prediction (from SDM output)
-  # df_Olp_pred_G <- RunComputeOverlap(df_proba_obs_PCA_xy,"pred","G")
-  # df_Olp_pred_E <- RunComputeOverlap(df.hex_obs_proba_pred,"pred","E")
   
   # Plot similarité E vs intensité chevauchement G
   df_Olp_G2 <- do.call(rbind,lapply(df_time$english_month, 
@@ -1008,6 +1207,7 @@ Return.Df.Ovlp <- function(df_E,df_G, data_type){
           panel.background = element_rect(fill="white"),
           plot.background = element_rect(fill="white"),
           panel.grid.major = element_line(colour="grey"))
+  plot_chvch_glob
   png(file = paste0(folder_overlap_fig,"/global_overlap_",data_type,".png"),width=1400, height=800)
   plot(plot_chvch_glob)
   dev.off()
@@ -1157,7 +1357,7 @@ if(inherits(t, "try-error")){
 }
   
 # 3 - merge E space - G space proba - G space obs ?
-t = try(as.data.frame(fread(paste0(table_fold_path,"/df_PCA_glob_proba_obs_xy_all_months.csv"),drop="V1")),
+t = try(load(paste0(table_fold_path,"/df_PCA_glob_proba_obs_xy_all_months.rdata")),
         silent = TRUE)
 if(inherits(t, "try-error")){
   df_proba_PCA_xy <- merge(df_uses_proba,df_PCA_glob, by=c("x","y","Month"),all=T)
@@ -1166,9 +1366,18 @@ if(inherits(t, "try-error")){
   #df_obs_PCA_xy <- na.omit(df_obs_PCA_xy)  
   df_proba_obs_PCA_xy <- merge(df_proba_PCA_xy, df_obs_PCA_xy, by=c("x","y","Month","Use","PCA1","PCA2"))
   write.csv(df_proba_obs_PCA_xy,paste0(table_fold_path,"/df_PCA_glob_proba_obs_xy_all_months.csv"))
+  
+  ### T+ENCORE MEME PB : le csv importé ne fonctionne pas,
+  ### mais le dataframe original marche parfaitement,
+  ### pour faire les plots
+  ### --> soluce = enregsitrer en .rdata
+  save(df_proba_obs_PCA_xy,
+       file = paste0(table_fold_path,"/df_PCA_glob_proba_obs_xy_all_months.rdata"))
+  
 }else{
-  df_proba_obs_PCA_xy <- as.data.frame(fread(paste0(table_fold_path,"/df_PCA_glob_proba_obs_xy_all_months.csv"),drop="V1"))
-}
+  load(paste0(table_fold_path,"/df_PCA_glob_proba_obs_xy_all_months.rdata"))
+  # df_proba_obs_PCA_xy <- as.data.frame(fread(paste0(table_fold_path,"/df_PCA_glob_proba_obs_xy_all_months.csv"),drop="V1"))
+  }
 
 # Order month and uses (to alays have the same order)
 df_proba_obs_PCA_xy$Month <- factor(df_proba_obs_PCA_xy$Month,      
@@ -1180,21 +1389,102 @@ df_proba_obs_PCA_xy$Use <- factor(df_proba_obs_PCA_xy$Use,
 ### Plots des proba dans espaces G et E ####
 # 4 - display in E and G spaces
 
-df.hex_obs_proba_pred <- Create.Plots.Monthly(df_proba_obs_PCA_xy, 100)
+xbnds <- range(c(df_proba_obs_PCA_xy$PCA1), na.rm=T)
+ybnds <- range(c(df_proba_obs_PCA_xy$PCA2), na.rm=T)
+nbins <- 100
+
+df.hex_obs_proba_pred <- Create.Plots.Monthly(df_proba_obs_PCA_xy)
+save(df.hex_obs_proba_pred,
+     file=paste0(table_fold_path,"/df_hex_obs_proba_pred.rdata"))
+
+# if(!exists('df.hex_obs_proba_pred')){
+#   df.hex_obs_proba_pred <- fread(paste0(table_fold_path,"/df_obs_proba_pred_ACP_months.csv"))
+# 
+# }
 
 Create.Plots.Summer()
 
+# FOCUS on 3 uses for 1 month
+
 ### Calcul des chevauchements dans espaces G et E ####
 # 5 - compute overlaps
-Return.Df.Ovlp(df_E =  df.hex_obs_proba_pred,
+
+# liste des paires d'usages
+df_combi <- combn(liste.usages, 2)
+liste_paires_usages <- lapply(1:dim(df_combi)[2], function(x) paste(df_combi[,x]))
+
+
+df_overlap_monthly_pred <- Return.Df.Ovlp(df_E =  df.hex_obs_proba_pred,
                df_G = df_proba_obs_PCA_xy,
                data_type = "pred")
 
-Return.Df.Ovlp(df_E =  df.hex_obs_proba_pred,
+df_overlap_monthly_obs <- Return.Df.Ovlp(df_E =  df.hex_obs_proba_pred,
                df_G = df_proba_obs_PCA_xy,
                data_type = "obs")
 
+write.csv(df_overlap_monthly_pred, paste0(table_fold_path,"/df_overlap_monthly_pred.csv"))
+write.csv(df_overlap_monthly_obs,paste0(table_fold_path,"/df_overlap_monthly_obs.csv"))
 
+# TODO : mix E-space SDM avec G-space obs
+df_overlap_monthly_obs_pred <- data.frame(paire=df_overlap_monthly_obs$paire, 
+           Month=df_overlap_monthly_obs$Month,
+           G_obs =df_overlap_monthly_obs$overlap_G,
+           E_SDM = df_overlap_monthly_pred$overlap_E
+           )
+
+
+P <- df_overlap_monthly_obs_pred %>%
+  ggplot(aes(x=G_obs, y = E_SDM,col=Month)) +
+  geom_point() +
+  ylim(0,1)+
+  geom_abline(intercept = 0, slope = 1) +
+  labs(x = "Intensity of Geographic Overlap",
+       y = "Modelled Ecological Similarity") +
+  theme(text = element_text(size=18),
+        panel.background = element_rect(fill="white"),
+        plot.background = element_rect(fill="white"),
+        panel.grid.major = element_line(colour="grey"))
+P1 <- df_overlap_monthly_obs_pred %>%
+  ggplot(aes(x=G_obs, y = E_SDM,col=Month)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1) +
+  facet_grid( ~ Month)+
+  labs(x = "Intensity of Geographic Overlap",
+       y = "Modelled Ecological Similarity") +
+  theme(text = element_text(size=18),
+        panel.background = element_rect(fill="white"),
+        plot.background = element_rect(fill="white"),
+        panel.grid.major = element_line(colour="grey"))+
+  coord_equal()
+P2 <- df_overlap_monthly_obs_pred %>%
+  ggplot(aes(x=G_obs, y = E_SDM,col=Month)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1) +
+  labs(x = "Intensity of Geographic Overlap",
+       y = "Modelled Ecological Similarity") +
+  facet_wrap(~paire) +
+  theme(text = element_text(size=18),
+        panel.background = element_rect(fill="white"),
+        plot.background = element_rect(fill="white"),
+        panel.grid.major = element_line(colour="grey"))
+
+
+
+design <- "
+  #1111#
+  #1111#
+  #1111#
+  222222
+"
+PP <- P / P1 + plot_layout(design = design)
+
+png(file = paste0(folder_overlap_fig,"/global_overlap_obs_geo_SDM_eco.png"),width=1400, height=800)
+plot(PP)
+dev.off()
+
+png(file = paste0(folder_overlap_fig,"/by_pair_overlap_obs_geo_SDM_eco.png"),width=1400, height=800)
+plot(P2)
+dev.off()
 
 
 # TODO : en chantier
